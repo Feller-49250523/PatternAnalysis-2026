@@ -1,0 +1,8 @@
+# Datasets and model files must not be committed
+data/
+*.npz
+*.pt
+*.pth
+*.ckpt
+__pycache__/
+.venv/
