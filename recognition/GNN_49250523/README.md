@@ -146,13 +146,15 @@ No isolated nodes and no NaNs. Median degree 7, maximum 709. Class counts 6,495 
 
 ### 3.3 Split
 
-**Setting: transductive.** All 22,470 pages and all edges are present during training, as in a real platform where every page exists but only some are labelled. Only training labels enter the loss.
+**Setting: transductive.** All 22,470 pages and all edges are present during training, as in a real platform where every page exists but only some are labelled. Every page's **features and links** go through the forward pass, so each page can average over all its neighbours. The split decides only **whose labels** may be used, and for what:
 
-| Split | Pages | Use |
-|---|---|---|
-| Train (70 %) | 15,729 | loss |
-| Validation (15 %) | 3,370 | early stopping, hyperparameter choice, temperature, reject threshold |
-| Test (15 %) | 3,371 | final report only, once per final model |
+| Split | Pages | How its labels are used | Results |
+|---|---|---|---|
+| Train (70 %) | 15,729 | **Learning.** Only these labels enter the cross-entropy loss. Backpropagation computes the gradient of that loss, and Adam uses it to update the weights $W$. These are the only labels that change the model. | Train loss curve, [Section 7.1](#71-test-macro-f1-ac1) |
+| Validation (15 %) | 3,370 | **Choosing, never learning.** Read after each epoch with no gradient (no backpropagation), for: early stopping ([5.1](#51-training)); picking the hyperparameters ([5.4](#54-tuning-history)); fitting the temperature ([7.3](#73-calibration-ac2)); choosing the reject threshold ([7.4](#74-reject-option-ac3)). | [Section 5.4](#54-tuning-history) |
+| Test (15 %) | 3,371 | **Reporting only.** Hidden (set to −1) during training and tuning ([Section 6](#6-leakage-controls)). Read once per final model, after every choice is frozen. | [Sections 7.1–7.7](#7-results) |
+
+A training page and a test page can be neighbours. The test page's features then flow into the training page's average, but its **label** never does. This is the standard transductive protocol (Kipf & Welling, 2017).
 
 - **Stratified**, so every split has the same class ratios (TV show 14.8 % in each). A random split without stratification would vary by about ±21 TV-show pages in the test set by chance.
 - **Shuffled with a fixed split seed**, so the split does not depend on the file order and is the same in every script and every run. `train.py` and `predict.py` each rebuild the split; a fixed seed makes sure they agree.
