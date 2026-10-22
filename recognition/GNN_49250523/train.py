@@ -264,6 +264,46 @@ def plot_curves(histories: dict[str, list[dict]], path: str) -> None:
     plt.close(fig)
 
 
+def plot_early_stopping(run: dict, patience: int, path: str) -> None:
+    """Show how early stopping picks the weights that are kept, for one run.
+
+    Args:
+        run: History of one run from ``train_one``.
+        patience: Epochs allowed without a new lowest validation loss.
+        path: Output PNG path.
+    """
+    plt.switch_backend("Agg")
+    best, stop = run["best_epoch"], len(run["val_loss"])
+    epochs = range(1, stop + 1)
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    ax.plot(epochs, run["train_loss"], "--", color="C0", lw=1, label="train loss (used to learn)")
+    ax.plot(epochs, run["val_loss"], color="C1", lw=1.5, label="validation loss (used to choose)")
+    ax.axvspan(best, stop, color="0.85", label=f"patience: {patience} epochs with no new low")
+    ax.plot(best, run["best_val_loss"], "o", color="C3", ms=8, zorder=3)
+    ax.annotate(
+        f"epoch {best}: lowest validation loss\nweights saved here, and restored at the end",
+        (best, run["best_val_loss"]),
+        xytext=(0.25, 0.55),
+        textcoords="axes fraction",
+        arrowprops={"arrowstyle": "->"},
+    )
+    ax.annotate(
+        f"epoch {stop}: stop",
+        (stop, run["val_loss"][-1]),
+        xytext=(0.78, 0.8),
+        textcoords="axes fraction",
+        arrowprops={"arrowstyle": "->"},
+    )
+    low = min(min(run["train_loss"]), run["best_val_loss"])
+    ax.set(xlabel="epoch", ylabel="cross-entropy loss", ylim=(low * 0.8, low * 2.5))
+    ax.set_title("Early stopping (GCN-4, seed 3)")
+    ax.legend(loc="lower left", fontsize=8)
+    ax.grid(alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
 def final(data: Data, safe: Data) -> None:
     """Train the best setting of each model with seeds 3-7 and test each once.
 
@@ -298,6 +338,9 @@ def final(data: Data, safe: Data) -> None:
     with open(os.path.join(RESULTS, "final.json"), "w") as f:
         json.dump(summary, f, indent=2)
     plot_curves(histories, os.path.join(RESULTS, "training_curves.png"))
+    if "gcn" in histories:
+        path = os.path.join(RESULTS, "early_stopping.png")
+        plot_early_stopping(histories["gcn"][0], best["gcn"].patience, path)
     for model in best:
         s = summary[model]
         print(f"{model}: test macro-F1 {s['test_f1_mean']:.4f} ± {s['test_f1_std']:.4f}")

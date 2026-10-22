@@ -187,7 +187,23 @@ The MLP has the same width, depth and dropout as GCN-2, so the gap between them 
 
 ### 5.1 Training
 
-Full-batch training: one epoch is one step (forward pass over the whole graph, loss on training pages, backpropagation, one Adam update). Cross-entropy loss. Early stopping on validation loss; the weights from the lowest validation loss are restored.
+**One epoch = one step.** The whole graph fits in memory, so each epoch is one full-batch step:
+
+```
+forward pass (all 22,470 pages) → cross-entropy loss on the 15,729 training labels
+→ backpropagation (gradient of the loss for every weight) → one Adam update of W
+→ validation loss on the 3,370 validation labels (no gradient, no update)
+```
+
+**Early stopping** (Shchur et al., 2018). Training loss falls almost every epoch, because the weights are updated to lower it. Validation loss shows how well the model does on labels it does not learn from. It falls at first, then flattens. If training went on, the model would start to fit details of the training pages that do not carry over to other pages (**overfitting**), and validation loss would rise. So the final model is not the weights at the last epoch:
+
+1. After each epoch, if the validation loss is a **new lowest value**, keep a copy of the weights from that epoch.
+2. If 50 epochs pass with no new lowest value (the **patience**), stop.
+3. Load the saved copy. The model that is tested is the one from the **best epoch**, not the last one.
+
+![Early stopping](results/early_stopping.png)
+
+**Figure.** A real run (GCN-4, seed 3, the first final run). Validation loss reaches its lowest value, 0.173, at epoch 185, and those weights are saved. In the next 50 epochs (grey), validation loss only wobbles (up to 0.187) and never goes lower, while training loss keeps falling (0.147 → 0.141). The gap between the two lines grows: the model is starting to fit the training pages more than the other pages. Training stops at epoch 235 and the epoch-185 weights are restored. The 50 extra epochs cost about 9 s and are thrown away. The cap of 100,000 epochs was never reached; the best epochs in all final runs were 185–556 ([Section 7.1](#71-test-macro-f1-ac1)).
 
 ### 5.2 Sources for every hyperparameter
 
