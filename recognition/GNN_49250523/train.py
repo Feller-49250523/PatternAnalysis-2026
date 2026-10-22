@@ -1,9 +1,9 @@
 """Train, tune and test the MLP baseline and the GCN on Facebook Page-Page.
 
 Usage:
-    python train.py gcn      # train one model with default settings, report validation F1
+    python train.py tune     # grid search, model seeds 0-2, scored on validation
 
-Test
+Every value in the grid comes from a published source (see ``GRIDS``). Test
 labels are hidden (set to -1) during training and tuning, so any attempt to
 use them in the loss raises an error; only the final runs (to come) may use them.
 """
@@ -11,8 +11,11 @@ use them in the loss raises an error; only the final runs (to come) may use them
 from __future__ import annotations
 
 import argparse
+import itertools
+import json
+import os
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 import torch
 import torch.nn.functional as F
@@ -22,7 +25,27 @@ from torch_geometric.data import Data
 from dataset import augment, get_data
 from modules import NodeClassifier, build_model
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+RESULTS = os.path.join(HERE, "results")
+
+TUNE_SEEDS = (0, 1, 2)
 HIDDEN = -1  # label value for nodes whose labels the model must not see
+
+# Sources: Kipf & Welling 2017 (K), Shchur et al. 2018 (S), Rong et al. 2020 (R).
+GRIDS = {
+    "gcn": {
+        "num_layers": [2, 3, 4],  # K App. B: 2-3 best; R: best GCN depth 4
+        "dropout": [0.5, 0.8],  # K: 0.5; S: best GCN 0.8
+        "p_edge": [0.0, 0.3],  # K: none; R: best GCN on Cora keeps 70 % of edges
+        "lr": [0.01, 0.005],  # K, S: GCN 0.01; S: MLP 0.005
+    },
+    "mlp": {
+        "num_layers": [2],
+        "dropout": [0.5, 0.8],  # same tuning for every model (S)
+        "p_edge": [0.0],
+        "lr": [0.01, 0.005],
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -37,6 +60,21 @@ class Config:
     hidden_dim: int = 64  # S: best GCN hidden size
     weight_decay: float = 5e-4  # K
     epochs: int = 200  # K: maximum; the best-validation-loss checkpoint is kept
+
+
+def grid(model: str) -> list[Config]:
+    """Return every setting in the grid for one model.
+
+    Args:
+        model: ``"mlp"`` or ``"gcn"``.
+
+    Returns:
+        One ``Config`` per combination of grid values.
+    """
+    keys, values = zip(*GRIDS[model].items(), strict=True)
+    return [
+        Config(model, **dict(zip(keys, combo, strict=True))) for combo in itertools.product(*values)
+    ]
 
 
 def set_seed(seed: int) -> None:
@@ -136,13 +174,51 @@ def train_one(data: Data, cfg: Config, seed: int) -> tuple[NodeClassifier, dict]
     return model, history
 
 
+def tune(data: Data) -> dict[str, Config]:
+    """Grid-search both models on validation and save the results.
+
+    Each setting is trained with seeds 0-2. The setting with the highest mean
+    validation macro-F1 wins (Shchur et al. pick by mean validation score).
+
+    Args:
+        data: Graph with hidden test labels.
+
+    Returns:
+        The best ``Config`` for each model.
+    """
+    rows, best = [], {}
+    for model in GRIDS:
+        scored = []
+        for cfg in grid(model):
+            runs = [train_one(data, cfg, s)[1] for s in TUNE_SEEDS]
+            f1s = torch.tensor([r["best_val_f1"] for r in runs])
+            row = {
+                **asdict(cfg),
+                "val_f1_mean": f1s.mean().item(),
+                "val_f1_std": f1s.std().item(),
+                "best_epochs": [r["best_epoch"] for r in runs],
+                "seconds_mean": sum(r["train_seconds"] for r in runs) / len(runs),
+            }
+            rows.append(row)
+            scored.append((row["val_f1_mean"], cfg))
+            print(
+                f"{model} L={cfg.num_layers} drop={cfg.dropout} edge={cfg.p_edge} lr={cfg.lr}: "
+                f"val F1 {row['val_f1_mean']:.4f} ± {row['val_f1_std']:.4f}  "
+                f"best epochs {row['best_epochs']}"
+            )
+        best[model] = max(scored, key=lambda t: t[0])[1]
+    os.makedirs(RESULTS, exist_ok=True)
+    with open(os.path.join(RESULTS, "tuning.json"), "w") as f:
+        json.dump({"rows": rows, "best": {m: asdict(c) for m, c in best.items()}}, f, indent=2)
+    return best
+
+
 def main() -> None:
     """Parse the command and run it."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("model", choices=["mlp", "gcn"])
-    args = parser.parse_args()
-    _, history = train_one(hide_test_labels(get_data()), Config(args.model), seed=0)
-    print(f"{args.model}: best epoch {history['best_epoch']}, val F1 {history['best_val_f1']:.4f}")
+    parser.add_argument("stage", choices=["tune"])
+    parser.parse_args()
+    tune(hide_test_labels(get_data()))
 
 
 if __name__ == "__main__":
