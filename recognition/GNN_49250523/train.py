@@ -4,7 +4,8 @@ Usage:
     python train.py tune     # grid search, model seeds 0-2, scored on validation
     python train.py final    # best settings, model seeds 3-7, tested once each
 
-Every value in the grid comes from a published source (see ``GRIDS``). Test
+Every value in the grid comes from a published source (see ``GRIDS``), and so
+do the fixed settings in ``Config``. Test
 labels are hidden (set to -1) during training and tuning, so any attempt to
 use them in the loss raises an error; they are revealed only in ``final``.
 """
@@ -40,7 +41,7 @@ HIDDEN = -1  # label value for nodes whose labels the model must not see
 # Sources: Kipf & Welling 2017 (K), Shchur et al. 2018 (S), Rong et al. 2020 (R).
 GRIDS = {
     "gcn": {
-        "num_layers": [2, 3, 4],  # K App. B: 2-3 best; R: best GCN depth 4
+        "num_layers": [2, 3, 4, 8],  # K App. B: 2-3 best; R: best GCN depth 4, next step 8
         "dropout": [0.5, 0.8],  # K: 0.5; S: best GCN 0.8
         "p_edge": [0.0, 0.3],  # K: none; R: best GCN on Cora keeps 70 % of edges
         "lr": [0.01, 0.005],  # K, S: GCN 0.01; S: MLP 0.005
@@ -65,7 +66,8 @@ class Config:
     lr: float = 0.01
     hidden_dim: int = 64  # S: best GCN hidden size
     weight_decay: float = 5e-4  # K
-    epochs: int = 200  # K: maximum; the best-validation-loss checkpoint is kept
+    max_epochs: int = 100_000  # S: a ceiling only; early stopping ends training
+    patience: int = 50  # S: stop after 50 epochs without a new lowest validation loss
 
 
 def grid(model: str) -> list[Config]:
@@ -131,7 +133,11 @@ def evaluate(model: NodeClassifier, data: Data, mask: torch.Tensor) -> tuple[flo
 
 
 def train_one(data: Data, cfg: Config, seed: int) -> tuple[NodeClassifier, dict]:
-    """Train one model and keep the weights from its lowest validation loss.
+    """Train one model with early stopping and keep its lowest-validation-loss weights.
+
+    Early stopping follows Shchur et al. (2018): training stops when the
+    validation loss has not reached a new low for ``cfg.patience`` epochs, and
+    the weights from the lowest point are restored.
 
     Args:
         data: Graph with split masks; its test labels must already be hidden.
@@ -156,7 +162,7 @@ def train_one(data: Data, cfg: Config, seed: int) -> tuple[NodeClassifier, dict]
     history = {"train_loss": [], "val_loss": [], "val_f1": []}
     best_loss, best_state, best_epoch = float("inf"), None, 0
     start = time.perf_counter()
-    for epoch in range(1, cfg.epochs + 1):
+    for epoch in range(1, cfg.max_epochs + 1):
         model.train()
         optimizer.zero_grad()
         edges = augment(data.edge_index, cfg.p_edge, training=True)
@@ -172,6 +178,8 @@ def train_one(data: Data, cfg: Config, seed: int) -> tuple[NodeClassifier, dict]
         if val_loss < best_loss:
             best_loss, best_epoch = val_loss, epoch
             best_state = {k: v.clone() for k, v in model.state_dict().items()}
+        elif epoch - best_epoch >= cfg.patience:
+            break
     history["train_seconds"] = time.perf_counter() - start
     history["best_epoch"] = best_epoch
     history["best_val_loss"] = best_loss
@@ -210,7 +218,8 @@ def tune(data: Data) -> dict[str, Config]:
             print(
                 f"{model} L={cfg.num_layers} drop={cfg.dropout} edge={cfg.p_edge} lr={cfg.lr}: "
                 f"val F1 {row['val_f1_mean']:.4f} ± {row['val_f1_std']:.4f}  "
-                f"best epochs {row['best_epochs']}"
+                f"best epochs {row['best_epochs']}  {row['seconds_mean']:.0f} s/run",
+                flush=True,
             )
         best[model] = max(scored, key=lambda t: t[0])[1]
     os.makedirs(RESULTS, exist_ok=True)
@@ -226,7 +235,10 @@ def peak_memory_gb() -> float:
 
 
 def plot_curves(histories: dict[str, list[dict]], path: str) -> None:
-    """Plot mean training/validation loss and validation macro-F1 per epoch.
+    """Plot training/validation loss and validation macro-F1 per epoch, one line per seed.
+
+    Runs stop at different epochs (early stopping), so each seed is drawn as its
+    own line instead of averaging curves of different lengths.
 
     Args:
         histories: Model name mapped to one history per seed.
@@ -234,16 +246,16 @@ def plot_curves(histories: dict[str, list[dict]], path: str) -> None:
     """
     plt.switch_backend("Agg")  # write files only; no window
     fig, (ax_loss, ax_f1) = plt.subplots(1, 2, figsize=(11, 4))
-    for name, runs in histories.items():
-        for key, style in (("train_loss", "--"), ("val_loss", "-")):
-            curve = torch.tensor([r[key] for r in runs]).mean(0)
-            ax_loss.plot(curve, style, label=f"{name.upper()} {key.replace('_', ' ')}")
-        f1 = torch.tensor([r["val_f1"] for r in runs])
-        mean, std = f1.mean(0), f1.std(0)
-        ax_f1.plot(mean, label=name.upper())
-        ax_f1.fill_between(range(len(mean)), mean - std, mean + std, alpha=0.2)
-    ax_loss.set(xlabel="epoch", ylabel="cross-entropy", title="Loss (mean of seeds)")
-    ax_f1.set(xlabel="epoch", ylabel="macro-F1", title="Validation macro-F1 (mean ± std)")
+    for i, (name, runs) in enumerate(histories.items()):
+        colour = f"C{i}"
+        for j, run in enumerate(runs):
+            label = name.upper() if j == 0 else None
+            ax_loss.plot(run["train_loss"], "--", color=colour, alpha=0.5, lw=0.8)
+            ax_loss.plot(run["val_loss"], "-", color=colour, alpha=0.8, lw=0.8, label=label)
+            ax_f1.plot(run["val_f1"], color=colour, alpha=0.8, lw=0.8, label=label)
+            ax_f1.axvline(run["best_epoch"], color=colour, alpha=0.2, lw=0.6)
+    ax_loss.set(xlabel="epoch", ylabel="cross-entropy", title="Loss (dashed: train, solid: val)")
+    ax_f1.set(xlabel="epoch", ylabel="macro-F1", title="Validation macro-F1 (lines: best epoch)")
     for ax in (ax_loss, ax_f1):
         ax.legend()
         ax.grid(alpha=0.3)
