@@ -11,6 +11,7 @@ scaling and threshold selection; test labels are used only for the final report.
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import os
 import urllib.request
@@ -19,7 +20,7 @@ import numpy as np
 import torch
 from sklearn.model_selection import train_test_split
 from torch_geometric.data import Data
-from torch_geometric.utils import remove_self_loops, to_undirected
+from torch_geometric.utils import degree, dropout_edge, remove_self_loops, to_undirected
 
 URL = "https://raw.githubusercontent.com/gayanku/facebook_page-page_dataset/main/facebook.npz"
 SHA256 = "7a1b8a0687515e9859d1ca649dc276825f5db44568894dfbb6b55ebc1cf6a9c1"
@@ -174,7 +175,75 @@ def get_data(root: str = DEFAULT_ROOT, split_seed: int = SPLIT_SEED) -> Data:
     return data
 
 
+def augment(edge_index: torch.Tensor, p_edge: float = 0.0, training: bool = True) -> torch.Tensor:
+    """Apply DropEdge (Rong et al., 2020): drop a random fraction of edges.
+
+    Use it on the training forward pass only. Both directions of an undirected
+    edge are dropped together, so the graph stays undirected. Labels are not
+    touched, so this cannot leak test labels. Off by default (``p_edge=0``).
+
+    Args:
+        edge_index: Undirected edges, shape ``(2, num_edges)``.
+        p_edge: Probability of dropping each undirected edge.
+        training: If ``False``, the edges are returned unchanged.
+
+    Returns:
+        The kept edges.
+    """
+    if not training or p_edge == 0.0:
+        return edge_index
+    edge_index, _ = dropout_edge(edge_index, p=p_edge, force_undirected=True)
+    return edge_index
+
+
+def load_page_names(
+    path: str = os.path.join(DEFAULT_ROOT, "facebook_target.csv"),
+) -> list[str] | None:
+    """Read page names from the MUSAE target CSV.
+
+    Only used to make the failure-case analysis readable. Row ``id`` matches
+    the node index in ``facebook.npz``.
+
+    Args:
+        path: Path to ``facebook_target.csv``.
+
+    Returns:
+        Page names in node order, or ``None`` if the file is absent.
+    """
+    if not os.path.exists(path):
+        return None
+    with open(path, newline="", encoding="utf-8") as f:
+        rows = sorted(csv.DictReader(f), key=lambda r: int(r["id"]))
+    return [r["page_name"] for r in rows]
+
+
+def audit(data: Data) -> dict[str, object]:
+    """Compute the summary statistics used in the README data section.
+
+    Args:
+        data: Graph from ``load_facebook`` or ``get_data``.
+
+    Returns:
+        Statistic name mapped to its value.
+    """
+    n = data.num_nodes
+    src, dst = data.edge_index
+    deg = degree(src, n)
+    stats = {
+        "nodes": n,
+        "undirected_edges": data.edge_index.size(1) // 2,
+        "features": data.num_features,
+        "class_counts": dict(zip(CLASS_NAMES, torch.bincount(data.y).tolist(), strict=True)),
+        "edge_homophily": round((data.y[src] == data.y[dst]).float().mean().item(), 3),
+        "isolated_nodes": int((deg == 0).sum()),
+        "degree_median": int(deg.median()),
+        "degree_max": int(deg.max()),
+    }
+    if "train_mask" in data:
+        stats["split_sizes"] = {s: int(data[f"{s}_mask"].sum()) for s in SPLITS}
+    return stats
+
+
 if __name__ == "__main__":
-    data = get_data()
-    print(data)
-    print({s: int(data[f"{s}_mask"].sum()) for s in SPLITS})
+    for key, value in audit(get_data()).items():
+        print(f"{key:>16}: {value}")
