@@ -27,11 +27,40 @@
 
 **Problem.** The Facebook Large Page-Page network has 22,470 verified Facebook pages. Two pages are linked when they like each other. Each page has a 128-dimensional feature vector built from its description, and one of four categories: company, government, politician or TV show. The task is semi-supervised node classification: predict the category of pages whose labels are withheld. The engineering question is whether the model's **confidence** can be trusted, so that a triage system can auto-label the pages it is sure about and send the rest to a human.
 
-**How a GCN works.** A graph convolutional network (Kipf & Welling, 2017) updates every page at once. In each layer, each page takes a degree-weighted average of its own features and its neighbours' features, then multiplies the result by a weight matrix that is shared by all pages:
+**How a GCN works.** A graph convolutional network (Kipf & Welling, 2017) updates every page at once. In each layer, each page takes a degree-weighted average of its own features and its neighbours' features, then multiplies the result by a weight matrix that is shared by all pages. In matrix form, one layer is:
 
-$$H^{(l+1)} = \mathrm{ReLU}\left(\tilde D^{-1/2}\tilde A\,\tilde D^{-1/2} H^{(l)} W^{(l)}\right), \qquad \tilde A = A + I$$
+$$H^{(l+1)} = \mathrm{ReLU}\left(\tilde D^{-1/2} \tilde A \tilde D^{-1/2} H^{(l)} W^{(l)}\right), \qquad \tilde A = A + I$$
 
-The weight for the edge between pages $i$ and $j$ is $1/\sqrt{\tilde d_i \tilde d_j}$, so a hub page with many links has a smaller say in each neighbour's average. With $L$ layers, each page receives information from pages up to $L$ hops away. The last layer outputs 4 scores per page, and softmax turns them into class probabilities. Linked pages usually share a category (edge homophily 0.885), so averaging over neighbours removes noise from each page's own features.
+| Symbol | Meaning | Size in this project |
+|---|---|---|
+| $N$ | Number of pages (nodes) | 22,470 |
+| $l$ | Layer number, from $0$ to $L-1$ | $L = 4$ layers |
+| $H^{(l)}$ | Input to layer $l$: one row of numbers per page. $H^{(0)} = X$, the 128 input features of each page | $N \times 128$ for layer 0, then $N \times 64$ |
+| $W^{(l)}$ | Weight matrix of layer $l$, **learned** in training and **shared by every page** | $128 \times 64$, then $64 \times 64$, last $64 \times 4$ |
+| $A$ | Adjacency matrix: $A_{ij} = 1$ if pages $i$ and $j$ are linked, else $0$ | $N \times N$ (stored as an edge list, because 99.9 % of entries are 0) |
+| $I$ | Identity matrix: $1$ on the diagonal, $0$ elsewhere | $N \times N$ |
+| $\tilde A = A + I$ | Adjacency **with self-loops**: each page is also linked to itself, so its own features stay in its average | $N \times N$ |
+| $\tilde d_i$ | Degree of page $i$ in $\tilde A$: its number of links **plus 1** (the self-loop) | 2 to 710 here |
+| $\tilde D$ | Degree matrix: diagonal, with $\tilde D_{ii} = \tilde d_i$ | $N \times N$ |
+| $\tilde D^{-1/2}$ | Diagonal matrix with entries $1/\sqrt{\tilde d_i}$ | $N \times N$ |
+| $\mathrm{ReLU}$ | $\max(0, x)$ on each number; not used after the last layer | – |
+
+The same layer, written for **one page** $i$, shows the weights between pages:
+
+$$h_i^{(l+1)} = \mathrm{ReLU}\left( \sum_{j \in \mathcal N(i) \cup \{i\}} \frac{1}{\sqrt{\tilde d_i \tilde d_j}} \, h_j^{(l)} W^{(l)} \right)$$
+
+Here $h_j^{(l)}$ is row $j$ of $H^{(l)}$ (page $j$'s numbers), and $\mathcal N(i)$ is the set of pages linked to page $i$. Page $i$ adds up its own row and each neighbour's row, each scaled by $1/\sqrt{\tilde d_i \tilde d_j}$, then multiplies by $W^{(l)}$ (for layer 0: a $1 \times 128$ row times a $128 \times 64$ matrix gives a $1 \times 64$ row).
+
+**Why this weight?** The weight of an edge depends only on the degrees of the **two pages at its ends**, $i$ and $j$. A hub with 709 links does not need all 709 degrees: its own degree $\tilde d_j = 710$ is in the weight of each of its edges. The square roots split the scaling fairly between the two ends (the geometric mean of the two degrees). The effect:
+
+| Edge | $\tilde d_i$ | $\tilde d_j$ | Weight $1/\sqrt{\tilde d_i \tilde d_j}$ |
+|---|---|---|---|
+| Between two pages with 4 links each | 5 | 5 | $1/\sqrt{25} = 0.200$ |
+| From the hub (709 links) to a page with 4 links | 5 | 710 | $1/\sqrt{3550} = 0.017$ |
+
+So a hub, which links to pages of many kinds, has a small say in each neighbour's average, and a page with many links does not get a sum that grows with its degree.
+
+With $L$ layers, each page receives information from pages up to $L$ hops away. (The middle layers of this model also add a residual connection, $h \leftarrow h + \text{layer}(h)$; see Section 4.) The last layer outputs 4 scores per page, and softmax turns them into class probabilities. Linked pages usually share a category (edge homophily 0.885), so averaging over neighbours removes noise from each page's own features.
 
 **Figures.** The 2-hop neighbourhoods in Section 7.7 show what each page averages over, and the t-SNE plot in Section 7.5 shows the learned embeddings.
 
