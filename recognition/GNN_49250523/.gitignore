@@ -6,3 +6,5 @@ data/
 *.ckpt
 __pycache__/
 .venv/
+.DS_Store
+.ruff_cache/
