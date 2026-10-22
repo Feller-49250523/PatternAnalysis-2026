@@ -207,28 +207,63 @@ forward pass (all 22,470 pages) → cross-entropy loss on the 15,729 training la
 
 ### 5.2 Sources for every hyperparameter
 
-Tuned on validation (grid):
+Three papers supply every value. Each row below gives **one value**, the paper it comes from, where in that paper, and what the paper says.
 
-| Hyperparameter | Values | Source |
+| Key | Paper | Why it is used |
 |---|---|---|
-| Layers (GCN) | 2, 3, 4, 8 | Kipf & Welling: 2–3 best, tested up to 10 with residuals; Rong et al.: best GCN depth 4, tested 2, 4, 8, … |
-| Dropout | 0.5, 0.8 | Kipf & Welling: 0.5; Shchur et al.: best GCN and best MLP 0.8 |
-| DropEdge rate *p* (GCN) | 0, 0.3 | Kipf & Welling: none; Rong et al.: best GCN on Cora keeps 70 % of edges |
-| Learning rate | 0.01, 0.005 | Shchur et al.: best GCN 0.01, best MLP 0.005 |
+| **[K]** | Kipf & Welling (2017), *Semi-supervised classification with graph convolutional networks* | The GCN itself |
+| **[S]** | Shchur et al. (2018), *Pitfalls of graph neural network evaluation* | A fair, tuned comparison of GCN and MLP under one training procedure |
+| **[R]** | Rong et al. (2020), *DropEdge* | Deeper GCNs and dropping edges |
 
-The MLP gets the same dropout and learning-rate grid (Shchur et al.: the same tuning procedure for every model), so the baseline is not weakened by less tuning.
+Full references: [Section 13](#13-references).
 
-Fixed:
+#### Tuned on validation (the grid, 4 × 2 × 2 × 2 = 32 GCN settings)
 
-| Setting | Value | Source |
-|---|---|---|
-| Hidden size | 64 | Shchur et al.: best GCN |
-| L2 weight decay | 5 × 10⁻⁴ | Kipf & Welling |
-| Optimiser | Adam | all three papers |
-| Early stopping | patience 50 on validation loss, max 100,000 epochs, restore best weights | Shchur et al., App. C |
-| Initialisation | Glorot | Kipf & Welling (PyG default) |
+**Number of GCN layers** — 4 values:
 
-Not tuned, with reasons: **epochs** are set by early stopping in every run; the **optimiser** is Adam in every reference paper and comparing optimisers does not answer the project question.
+| Value | Source | Where | What the paper says |
+|---|---|---|---|
+| 2 | [K] | App. B, Fig. 5 | Tested 1 to 10 layers: "best results are obtained with a 2- or 3-layer model" |
+| 3 | [K] | App. B, Fig. 5 | Same sentence |
+| 4 | [R] | App., Table 6 | Best plain GCN on Cora has 4 layers (accuracy 0.876) |
+| 8 | [R] | App., "Hyper-parameter Optimization" | Depths tested are 2, 4, 8, 16, 32, 64; 8 is the next after 4. Added in tuning v2 because 4 was the best of 2–4 and at the edge of the grid ([Section 5.4](#54-tuning-history)) |
+
+**Dropout rate** — 2 values (GCN and MLP):
+
+| Value | Source | Where | What the paper says |
+|---|---|---|---|
+| 0.5 | [K] | Sec. 6.1 | "0.5 (dropout rate), 5 · 10⁻⁴ (L2 regularization) and 16 (number of hidden units)" for Citeseer, Cora and Pubmed |
+| 0.8 | [S] | App. C, Table 4 | Best dropout after a grid search over 0.2–0.8: 0.8 for GCN, and 0.8 for MLP |
+
+**DropEdge rate *p*** (fraction of edges dropped each epoch) — 2 values (GCN only; the MLP uses no edges):
+
+| Value | Source | Where | What the paper says |
+|---|---|---|---|
+| 0 | [K] | – | The original GCN drops no edges |
+| 0.3 | [R] | App., Tables 4 and 6 | Best GCN on Cora has "sampling-percent: 0.7"; Table 4 defines sampling-percent as the share of edges **kept**, (1 − *p*), so *p* = 1 − 0.7 = 0.3 |
+
+**Learning rate** — 2 values (GCN and MLP):
+
+| Value | Source | Where | What the paper says |
+|---|---|---|---|
+| 0.01 | [K]; [S] | [K] Sec. 5.2; [S] App. C, Table 4 | [K]: "Adam … with a learning rate of 0.01". [S]: best GCN learning rate 0.01 |
+| 0.005 | [S] | App. C, Table 4 | Best MLP learning rate 0.005 |
+
+The MLP gets the same dropout and learning-rate values as the GCN. [S] (Sec. 3) uses "the same training procedure for all the models", so the baseline is not weakened by less tuning. It has a 2-value dropout × 2-value learning-rate grid: 4 settings.
+
+#### Fixed (not tuned)
+
+| Setting | Value | Source | Where | What the paper says | Difference in this project |
+|---|---|---|---|---|---|
+| Hidden size | 64 | [S] | App. C, Table 4 | Best hidden size 64 for GCN and for MLP (grid 8, 16, 32, 64) | [K] used 16 |
+| L2 weight decay | 5 × 10⁻⁴ | [K] | Sec. 6.1 | "5 · 10⁻⁴ (L2 regularization)" | [K] applies it to the first layer only; here Adam's `weight_decay` applies it to every weight. [S]'s best GCN used 10⁻³ |
+| Optimiser | Adam | [K]; [S] | [K] Sec. 5.2; [S] Sec. 3 | [K]: "using Adam"; [S]: "the same optimizer (Adam … with default parameters)" | – |
+| Early stopping | patience 50 on validation loss; restore the best weights | [S] | App. C | "training stops if the total validation loss … does not improve for 50 epochs. Once training has stopped, we reset the state of the weights to the step with the lowest validation loss" | [S] includes the L2 term in the validation loss; here validation loss is cross-entropy only |
+| Maximum epochs | 100,000 | [S] | App. C | "We train for a maximum of 100k epochs" | Never reached; the best epochs were 185–556 |
+| Initialisation (GCN) | Glorot | [K]; [S] | [K] Sec. 5.2; [S] Sec. 3 | "initialization described in Glorot & Bengio (2010)" | PyG's `GCNConv` default |
+| Initialisation (MLP) | PyTorch default | – | – | – | `nn.Linear` default (Kaiming-uniform), **not** Glorot. A small mismatch with [S], which uses Glorot for every model |
+
+**Not tuned, with reasons.** The **number of epochs** is set by early stopping in every run. The **optimiser** is Adam in all three papers, and comparing optimisers does not answer the project question.
 
 ### 5.3 Protocol
 
