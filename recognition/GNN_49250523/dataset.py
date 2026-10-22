@@ -17,6 +17,7 @@ import urllib.request
 
 import numpy as np
 import torch
+from sklearn.model_selection import train_test_split
 from torch_geometric.data import Data
 from torch_geometric.utils import remove_self_loops, to_undirected
 
@@ -97,6 +98,83 @@ def load_facebook(root: str = DEFAULT_ROOT) -> Data:
     return Data(x=x, edge_index=edge_index, y=y)
 
 
+def make_split(
+    y: torch.Tensor,
+    split_seed: int = SPLIT_SEED,
+    val_frac: float = 0.15,
+    test_frac: float = 0.15,
+) -> dict[str, torch.Tensor]:
+    """Make a stratified, seeded train/val/test split of the nodes.
+
+    Stratified, so each split keeps the class ratios (TV show is only 15 %).
+    The split seed is separate from the model seed: keep it fixed so that all
+    models and all training seeds are compared on the same test nodes.
+
+    Args:
+        y: Node labels, shape ``(num_nodes,)``.
+        split_seed: Seed for the shuffle inside the split.
+        val_frac: Fraction of nodes for validation.
+        test_frac: Fraction of nodes for testing.
+
+    Returns:
+        Boolean masks keyed by ``"train"``, ``"val"`` and ``"test"``.
+    """
+    n = y.size(0)
+    idx = np.arange(n)
+    labels = y.numpy()
+    train, rest = train_test_split(
+        idx, test_size=val_frac + test_frac, stratify=labels, random_state=split_seed
+    )
+    val, test = train_test_split(
+        rest,
+        test_size=test_frac / (val_frac + test_frac),
+        stratify=labels[rest],
+        random_state=split_seed,
+    )
+    masks = {}
+    for name, ids in zip(SPLITS, (train, val, test), strict=True):
+        mask = torch.zeros(n, dtype=torch.bool)
+        mask[torch.from_numpy(ids)] = True
+        masks[name] = mask
+    check_split(masks)
+    return masks
+
+
+def check_split(masks: dict[str, torch.Tensor]) -> None:
+    """Check that the splits are disjoint and cover every node.
+
+    Args:
+        masks: Boolean masks keyed by ``"train"``, ``"val"`` and ``"test"``.
+
+    Raises:
+        ValueError: If two splits share a node or a node is in no split.
+    """
+    for i, a in enumerate(SPLITS):
+        for b in SPLITS[i + 1 :]:
+            shared = int((masks[a] & masks[b]).sum())
+            if shared:
+                raise ValueError(f"{a} and {b} share {shared} nodes")
+    if not (masks["train"] | masks["val"] | masks["test"]).all():
+        raise ValueError("some nodes are in no split")
+
+
+def get_data(root: str = DEFAULT_ROOT, split_seed: int = SPLIT_SEED) -> Data:
+    """Load the graph and attach ``train_mask``, ``val_mask`` and ``test_mask``.
+
+    Args:
+        root: Directory that holds the dataset file.
+        split_seed: Seed for the train/val/test split.
+
+    Returns:
+        Graph with the three split masks attached.
+    """
+    data = load_facebook(root)
+    for name, mask in make_split(data.y, split_seed=split_seed).items():
+        data[f"{name}_mask"] = mask
+    return data
+
+
 if __name__ == "__main__":
-    data = load_facebook()
+    data = get_data()
     print(data)
+    print({s: int(data[f"{s}_mask"].sum()) for s in SPLITS})
