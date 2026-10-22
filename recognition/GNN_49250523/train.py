@@ -2,10 +2,11 @@
 
 Usage:
     python train.py tune     # grid search, model seeds 0-2, scored on validation
+    python train.py final    # best settings, model seeds 3-7, tested once each
 
 Every value in the grid comes from a published source (see ``GRIDS``). Test
 labels are hidden (set to -1) during training and tuning, so any attempt to
-use them in the loss raises an error; only the final runs (to come) may use them.
+use them in the loss raises an error; they are revealed only in ``final``.
 """
 
 from __future__ import annotations
@@ -14,9 +15,12 @@ import argparse
 import itertools
 import json
 import os
+import resource
+import sys
 import time
 from dataclasses import asdict, dataclass
 
+import matplotlib.pyplot as plt
 import torch
 import torch.nn.functional as F
 from sklearn.metrics import f1_score
@@ -27,8 +31,10 @@ from modules import NodeClassifier, build_model
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RESULTS = os.path.join(HERE, "results")
+CHECKPOINTS = os.path.join(HERE, "checkpoints")
 
 TUNE_SEEDS = (0, 1, 2)
+FINAL_SEEDS = (3, 4, 5, 6, 7)
 HIDDEN = -1  # label value for nodes whose labels the model must not see
 
 # Sources: Kipf & Welling 2017 (K), Shchur et al. 2018 (S), Rong et al. 2020 (R).
@@ -213,12 +219,89 @@ def tune(data: Data) -> dict[str, Config]:
     return best
 
 
+def peak_memory_gb() -> float:
+    """Return the peak resident memory of this process in GB."""
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return peak / 1e9 if sys.platform == "darwin" else peak * 1024 / 1e9  # bytes vs KiB
+
+
+def plot_curves(histories: dict[str, list[dict]], path: str) -> None:
+    """Plot mean training/validation loss and validation macro-F1 per epoch.
+
+    Args:
+        histories: Model name mapped to one history per seed.
+        path: Output PNG path.
+    """
+    plt.switch_backend("Agg")  # write files only; no window
+    fig, (ax_loss, ax_f1) = plt.subplots(1, 2, figsize=(11, 4))
+    for name, runs in histories.items():
+        for key, style in (("train_loss", "--"), ("val_loss", "-")):
+            curve = torch.tensor([r[key] for r in runs]).mean(0)
+            ax_loss.plot(curve, style, label=f"{name.upper()} {key.replace('_', ' ')}")
+        f1 = torch.tensor([r["val_f1"] for r in runs])
+        mean, std = f1.mean(0), f1.std(0)
+        ax_f1.plot(mean, label=name.upper())
+        ax_f1.fill_between(range(len(mean)), mean - std, mean + std, alpha=0.2)
+    ax_loss.set(xlabel="epoch", ylabel="cross-entropy", title="Loss (mean of seeds)")
+    ax_f1.set(xlabel="epoch", ylabel="macro-F1", title="Validation macro-F1 (mean ± std)")
+    for ax in (ax_loss, ax_f1):
+        ax.legend()
+        ax.grid(alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
+def final(data: Data, safe: Data) -> None:
+    """Train the best setting of each model with seeds 3-7 and test each once.
+
+    Args:
+        data: Graph with real labels (used only for the test score).
+        safe: Same graph with hidden test labels (used for training).
+    """
+    with open(os.path.join(RESULTS, "tuning.json")) as f:
+        best = {m: Config(**c) for m, c in json.load(f)["best"].items()}
+    os.makedirs(CHECKPOINTS, exist_ok=True)
+    summary, histories = {}, {}
+    for model, cfg in best.items():
+        runs = []
+        for seed in FINAL_SEEDS:
+            net, hist = train_one(safe, cfg, seed)
+            test_loss, test_f1 = evaluate(net, data, data.test_mask)
+            path = os.path.join(CHECKPOINTS, f"{model}_seed{seed}.pt")
+            torch.save({"config": asdict(cfg), "seed": seed, "state_dict": net.state_dict()}, path)
+            runs.append({**hist, "test_loss": test_loss, "test_f1": test_f1})
+            print(f"{model} seed {seed}: test F1 {test_f1:.4f}, best epoch {hist['best_epoch']}")
+        f1s = torch.tensor([r["test_f1"] for r in runs])
+        summary[model] = {
+            "config": asdict(cfg),
+            "params": sum(p.numel() for p in net.parameters()),
+            "test_f1_mean": f1s.mean().item(),
+            "test_f1_std": f1s.std().item(),
+            "train_seconds_mean": sum(r["train_seconds"] for r in runs) / len(runs),
+            "best_epochs": [r["best_epoch"] for r in runs],
+        }
+        histories[model] = runs
+    summary["peak_memory_gb"] = peak_memory_gb()
+    with open(os.path.join(RESULTS, "final.json"), "w") as f:
+        json.dump(summary, f, indent=2)
+    plot_curves(histories, os.path.join(RESULTS, "training_curves.png"))
+    for model in best:
+        s = summary[model]
+        print(f"{model}: test macro-F1 {s['test_f1_mean']:.4f} ± {s['test_f1_std']:.4f}")
+
+
 def main() -> None:
     """Parse the command and run it."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("stage", choices=["tune"])
-    parser.parse_args()
-    tune(hide_test_labels(get_data()))
+    parser.add_argument("stage", choices=["tune", "final"])
+    args = parser.parse_args()
+    data = get_data()
+    safe = hide_test_labels(data)
+    if args.stage == "tune":
+        tune(safe)
+    else:
+        final(data, safe)
 
 
 if __name__ == "__main__":
