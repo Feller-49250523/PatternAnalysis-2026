@@ -8,6 +8,8 @@ target-version = "py312"
 # E/W pycodestyle (PEP 8), F pyflakes, I isort, N pep8-naming, D pydocstyle,
 # B bugbear, UP pyupgrade, SIM simplify
 select = ["E", "W", "F", "I", "N", "D", "B", "UP", "SIM"]
+# N812: allow `import torch.nn.functional as F`, the PyTorch convention.
+ignore = ["N812"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
