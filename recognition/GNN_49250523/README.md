@@ -2,7 +2,7 @@
 
 **Student number:** 49250523 · **Project:** 2.1 Classification · **Model:** multi-layer GNN (GCN) · **Difficulty:** Normal
 
-> **Status (22 Oct 2026):** data pipeline, models and training script are complete. Hyperparameter tuning is complete (Section 5.4); the final test runs are next. Sections marked **TODO** are filled in after the final runs.
+> **Status (22 Oct 2026):** data pipeline, models and training script are complete. Tuning and the final test runs are complete (Sections 5.4, 7.1). Calibration, the reject option and the failure analysis (`predict.py`) are next. Sections marked **TODO** are filled in after the final runs.
 
 ## Contents
 
@@ -251,14 +251,32 @@ In the transductive setting, test pages' **features and edges** are visible duri
 
 ## 7. Results
 
-TODO after the final runs:
+### 7.1 Test macro-F1 (AC1)
 
-- MLP vs GCN on the same split: accuracy, macro-F1, per-class precision and recall, AUROC (mean ± std over 5 seeds).
-- Training curves (`results/training_curves.png`).
+The tuned setting of each model (Section 5.4) was trained with new seeds 3–7 and scored on the test split once per seed. Full output: [`results/final.json`](results/final.json), [`results/final.log`](results/final.log).
+
+| Model | Test macro-F1 (mean ± std, 5 seeds) | Per seed | Params | Train time / run | Best epochs |
+|---|---|---|---|---|---|
+| GCN-4 | **0.945 ± 0.002** | 0.943, 0.947, 0.942, 0.946, 0.946 | 16,836 | 53 s | 185–351 |
+| MLP | 0.776 ± 0.004 | 0.781, 0.779, 0.773, 0.771, 0.778 | 8,516 | 4 s | 350–556 |
+
+**AC1 passes:** 0.945 ≥ 0.90, and the GCN is 0.168 above the MLP (target ≥ 0.05). The worst GCN seed (0.942) is still 0.161 above the best MLP seed (0.781). Test is about 0.007 below validation (0.952), a small drop, as expected after selecting on validation.
+
+![Training curves](results/training_curves.png)
+
+**Figure.** Loss and validation macro-F1 for the 5 final seeds. Seeds agree closely. The GCN validation loss flattens by about epoch 200 and early stopping ends each run 50 epochs after its best epoch (vertical lines). The gap between train and validation loss stays small, so there is little overfitting.
+
+### 7.2 Resources (AC5, partial)
+
+Training: 53 s per GCN run (limit 10 min). Peak memory for the whole final stage: 0.87 GB (limit 4 GB). Inference latency: TODO (`predict.py`).
+
+### 7.3 Still to do
+
 - Calibration: ECE before and after temperature scaling, reliability diagram.
 - Reject option: coverage and accuracy at the validation-chosen threshold, including per-class coverage.
 - t-SNE of the GCN embeddings, coloured by true class.
-- Resource table: parameters, training time, peak memory, inference latency.
+- Inference latency.
+- Accuracy, per-class precision and recall, AUROC.
 - Failure analysis of 3–5 misclassified pages.
 - Recommendation to the triage team.
 
@@ -343,6 +361,7 @@ GNN_49250523/
 | 22 Oct | Hyperparameter sources | Every grid value traced to Kipf & Welling, Shchur et al. or Rong et al. Dropout 0.3 and DropEdge 0.2 replaced by sourced values 0.8 and 0.3. Learning rate added to the grid for fairness to the MLP. |
 | 22 Oct | Tuning v1 → v2 | See Section 5.4. |
 | 22 Oct | Tuning v2 complete | GCN-4, dropout 0.5, no DropEdge, lr 0.01 chosen (validation macro-F1 0.952). Depth 8 did not beat depth 4. |
+| 22 Oct | Final runs (seeds 3–7) | GCN test macro-F1 0.945 ± 0.002, MLP 0.776 ± 0.004. AC1 passes. |
 
 ---
 
