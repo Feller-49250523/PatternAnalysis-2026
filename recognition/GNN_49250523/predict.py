@@ -16,6 +16,7 @@ import csv
 import glob
 import json
 import os
+import textwrap
 import time
 
 import matplotlib.pyplot as plt
@@ -281,7 +282,8 @@ def plot_neighbourhood(data: Data, node: int, pred: int, path: str, cap: int = 4
         ax.scatter([], [], color=f"C{c}", label=cls)
     ax.legend(loc="lower left")
     ax.set_title(
-        f"{names[node]}: true {CLASS_NAMES[int(data.y[node])]}, predicted {CLASS_NAMES[pred]}\n"
+        f"{textwrap.fill(names[node], 50)}\n"
+        f"true: {CLASS_NAMES[int(data.y[node])]}, predicted: {CLASS_NAMES[pred]}\n"
         f"degree {len(dst[src == node])} (showing {len(hop1)})"
     )
     ax.axis("off")
