@@ -2,7 +2,7 @@
 
 **Student number:** 49250523 · **Project:** 2.1 Classification · **Model:** multi-layer GNN (GCN) · **Difficulty:** Normal
 
-> **Status (22 Oct 2026):** data pipeline, models and training script are complete. Tuning and the final test runs are complete (Sections 5.4, 7.1). Calibration, the reject option and the failure analysis (`predict.py`) are next. Sections marked **TODO** are filled in after the final runs.
+> **Status (23 Oct 2026):** all experiments are complete. AC1, AC2, AC4 and AC5 pass; AC3 fails narrowly (Section 7.4). Remaining TODO: the AI-disclosure confirmation (Section 14).
 
 ## Contents
 
@@ -33,7 +33,7 @@ $$H^{(l+1)} = \mathrm{ReLU}\left(\tilde D^{-1/2}\tilde A\,\tilde D^{-1/2} H^{(l)
 
 The weight for the edge between pages $i$ and $j$ is $1/\sqrt{\tilde d_i \tilde d_j}$, so a hub page with many links has a smaller say in each neighbour's average. With $L$ layers, each page receives information from pages up to $L$ hops away. The last layer outputs 4 scores per page, and softmax turns them into class probabilities. Linked pages usually share a category (edge homophily 0.885), so averaging over neighbours removes noise from each page's own features.
 
-**Figure.** TODO: a 2-hop neighbourhood of one page coloured by class, and a t-SNE plot of the learned embeddings.
+**Figures.** The 2-hop neighbourhoods in Section 7.7 show what each page averages over, and the t-SNE plot in Section 7.5 shows the learned embeddings.
 
 ---
 
@@ -242,7 +242,7 @@ The gap between GCN and MLP (+0.167 macro-F1) is the value the graph edges add. 
 | Test labels replaced by −1 during training and tuning | `train.hide_test_labels` | `cross_entropy` raises `IndexError` if a test page enters the loss |
 | No scoring of hidden labels | `train.evaluate` | `ValueError` |
 | Test scored only in `final`, once per seed, after all choices are frozen | `train.final` | – |
-| Temperature and threshold fitted on validation | TODO (`train.py`) | – |
+| Temperature and threshold fitted on validation only, then frozen | `predict.score_seed` (uses `calibrate.py`) | – |
 | Fresh split seed after the exploratory smoke test | `dataset.SPLIT_SEED` | – |
 
 In the transductive setting, test pages' **features and edges** are visible during message passing; their **labels** are not. This is the standard protocol (Kipf & Welling, 2017).
@@ -266,19 +266,117 @@ The tuned setting of each model (Section 5.4) was trained with new seeds 3–7 a
 
 **Figure.** Loss and validation macro-F1 for the 5 final seeds. Seeds agree closely. The GCN validation loss flattens by about epoch 200 and early stopping ends each run 50 epochs after its best epoch (vertical lines). The gap between train and validation loss stays small, so there is little overfitting.
 
-### 7.2 Resources (AC5, partial)
+### 7.2 Per-class metrics
 
-Training: 53 s per GCN run (limit 10 min). Peak memory for the whole final stage: 0.87 GB (limit 4 GB). Inference latency: TODO (`predict.py`).
+From `python predict.py` ([`results/predict.json`](results/predict.json)). Mean over seeds 3–7; standard deviations are ≤ 0.009.
 
-### 7.3 Still to do
+| | Accuracy | Macro-F1 | AUROC (macro OvR) |
+|---|---|---|---|
+| GCN-4 | 0.948 | 0.945 | 0.990 |
+| MLP | 0.798 | 0.776 | 0.946 |
 
-- Calibration: ECE before and after temperature scaling, reliability diagram.
-- Reject option: coverage and accuracy at the validation-chosen threshold, including per-class coverage.
-- t-SNE of the GCN embeddings, coloured by true class.
-- Inference latency.
-- Accuracy, per-class precision and recall, AUROC.
-- Failure analysis of 3–5 misclassified pages.
-- Recommendation to the triage team.
+| Precision / recall | company | government | politician | tvshow |
+|---|---|---|---|---|
+| GCN-4 | 0.949 / 0.943 | 0.948 / 0.957 | 0.963 / 0.962 | 0.922 / 0.917 |
+| MLP | 0.829 / 0.848 | 0.802 / 0.844 | 0.777 / 0.825 | 0.759 / **0.560** |
+
+TV show, the minority class (15 %), is the weakest class for both models. The graph helps it the most: recall rises from 0.56 to 0.92.
+
+### 7.3 Calibration (AC2)
+
+Temperature *T* is fitted on validation logits by minimising the negative log-likelihood (Guo et al., 2017), then frozen. ECE uses 15 equal-width bins.
+
+| | *T* | Test ECE before | Test ECE after |
+|---|---|---|---|
+| GCN-4 | 1.02 ± 0.02 | 0.015 | 0.015 |
+| MLP | 0.98 ± 0.01 | 0.036 | 0.034 |
+
+**AC2 passes** (0.015 ≤ 0.03). The GCN was already calibrated, so scaling changed almost nothing (*T* ≈ 1). A likely reason: early stopping keeps the weights with the lowest validation loss, and that loss is the same NLL that temperature scaling minimises. A check of seed 3 confirms that the validation NLL is lowest at *T* = 1.00.
+
+![Reliability diagram](results/reliability.png)
+
+**Figure.** Test reliability diagram, GCN seed 3. Each bar is the accuracy of the pages in one confidence bin; perfect calibration lies on the dashed line. No page has confidence below 0.4, and the bins above 0.8 hold most pages.
+
+### 7.4 Reject option (AC3)
+
+**Rule** (fixed in the feasibility review): on validation, choose the lowest confidence threshold at which the auto-labelled pages are ≥ 97 % correct; freeze it; apply it to test. Pages below the threshold go to a human.
+
+| | Threshold | Test coverage (auto-labelled) | Test accuracy of auto-labels | Coverage per class (co / gov / pol / tv) |
+|---|---|---|---|---|
+| GCN-4 | 0.69 ± 0.02 | **95.3 %** | **96.3 %** | 96 / 95 / 96 / 93 % |
+| MLP | 0.90 ± 0.01 | 44.4 % | 95.7 % | 48 / 43 / 48 / 34 % |
+
+**AC3 fails narrowly.** Coverage passes easily (95 % vs the 80 % target), but accuracy is 96.3 %, below 97 %, for all 5 seeds (96.2–96.5 %). The cause: the rule places the threshold exactly at 97 % on validation, and test accuracy is about 0.5 points lower than validation (Section 7.1). A rule with no safety margin fails on any small validation-to-test gap. The threshold was **not** changed after seeing the test result, because that would use test labels to make a choice (Section 6). Section 7.8 proposes a margin for deployment.
+
+The rule refers TV show pages slightly more often (93 % coverage vs 95–96 %), which matches TV show being the hardest class.
+
+### 7.5 Embeddings
+
+![t-SNE](results/tsne.png)
+
+**Figure.** t-SNE of the hidden layer on the test pages (seed 3), coloured by true class. **GCN:** four compact clusters. TV show touches company, and government touches politician. These are the two most common error pairs (Section 7.7), so the overlaps in the plot match the errors. **MLP:** many small mixed clumps, and TV show is spread across the company and centre regions, which matches its 0.56 recall. Caveat: t-SNE keeps local neighbourhoods but not global distances, so only cluster purity is read from it, not the distances between clusters.
+
+### 7.6 Resources (AC5)
+
+Apple M4 CPU, no GPU (the spec asks for peak GPU VRAM; this study ran on CPU, so peak process memory is reported instead).
+
+| | Parameters | Train time / run | Best epoch | Peak memory | Full-graph inference |
+|---|---|---|---|---|---|
+| GCN-4 | 16,836 | 53 s | 185–351 | 0.87 GB | 59 ms |
+| MLP | 8,516 | 4 s | 350–556 | (same process) | 1.2 ms |
+
+**AC5 passes** (limits: 10 min, 4 GB, 1 s). Inference is the median of 20 full-graph forward passes, for all 22,470 pages at once. The GCN costs 50× the MLP's latency, but 59 ms for the whole graph is still small.
+
+### 7.7 Failure analysis
+
+144 test pages are wrong for **all 5** GCN seeds, so these are stable failures, not bad luck ([`results/failures.csv`](results/failures.csv)). The most common error pairs: tvshow → company (27), company → tvshow (22), politician → government (22), company → government (20). 59 of the 144 have mean confidence ≥ 0.9.
+
+Five representative cases, one per trigger. "Own-class links" is the share of the page's neighbours that have the page's true class. "MLP" shows whether the model without the graph gets the page right; this separates errors caused by the graph from errors caused by the features.
+
+| # | Page | True → GCN | GCN conf. | Links | Own-class links | MLP (5 seeds) | Trigger |
+|---|---|---|---|---|---|---|---|
+| 1 | Senado de la República | government → politician | 1.00 | 35 | 9 % (32 of 35 are politicians) | politician (wrong) | Wrong-class neighbours |
+| 2 | Chef's Table | tvshow → company | 1.00 | 1 | 0 % (its only link: San Pellegrino) | tvshow, 4 of 5 (right) | Few links |
+| 3 | laSexta | company → tvshow | 1.00 | 12 | 25 % (8 of 12 are its own shows) | tvshow (wrong) | Classes overlap |
+| 4 | NASA | company → government | 1.00 | 328 | 6 % (289 are government) | government (wrong) | Arguable label |
+| 5 | The Muppets | tvshow → company | 0.65 | 22 | 32 % (Disney Store, Toys R Us …) | tvshow (right) | Caught by the reject rule |
+
+1. **Senado de la República** (a national senate). A senate's page is liked by its senators, so 32 of its 35 neighbours are politicians. Every layer averages them in, and the GCN is fully confident in "politician". The MLP also says politician, so the page's own text is also politician-like. **Trigger:** the page is an institution made of people of another class. Many legislatures and parties fail the same way (politician ↔ government is the third-largest error pair).
+
+   ![Senado](results/neighbourhood_9762.png)
+
+2. **Chef's Table** (a Netflix series). Its only link is to San Pellegrino, a food-and-drink company. With one neighbour, that neighbour dominates the average. The MLP, which ignores the edge, gets it right in 4 of 5 seeds. **Trigger:** low degree. **The graph caused this error.**
+
+   ![Chef's Table](results/neighbourhood_4593.png)
+
+3. **laSexta** (a Spanish TV channel, labelled company). 8 of its 12 neighbours are its own programmes (*El Intermedio*, *Salvados*, …). The MLP also says TV show with confidence 1.00. **Trigger:** the taxonomy has no "broadcaster" class, so a channel sits between company and TV show. This is a **false positive** for TV show. Of the 22 stable company → tvshow errors, 6 are media pages (Netflix, a radio station, an awards show); many of the others are food brands (Kinder, Sargento Cheese, Lean Cuisine).
+
+   ![laSexta](results/neighbourhood_14872.png)
+
+4. **NASA** (labelled company). NASA is a US government agency, and 289 of its 328 neighbours are government pages. The GCN and the MLP both say government. **Trigger:** the label itself is arguable. Here the model is probably right and the dataset label is questionable. A wrong label in the test set lowers the measured accuracy, and it would also teach the model the wrong thing if it were in the training set.
+
+   ![NASA](results/neighbourhood_11332.png)
+
+5. **The Muppets** (labelled tvshow). Its neighbours are mostly merchandise and retail: Disney Store, Toys R Us UK, Amazon Toys & Games. The GCN is pulled to "company", but only with confidence 0.65, below the threshold in 4 of 5 seeds, so **the reject rule sends it to a human**. The MLP gets it right. **This is the case the triage design is for:** an uncertain error that is caught.
+
+   ![The Muppets](results/neighbourhood_7974.png)
+
+**What the five cases show.** In cases 1–4, the GCN is wrong with confidence 1.00, so no confidence threshold can catch them. Two causes stand out:
+- **The graph overrides good features** (cases 2 and 5): the MLP was right. A page whose GCN and MLP predictions disagree is a cheap signal for human review.
+- **The taxonomy does not fit the page** (cases 3 and 4): broadcasters and government agencies are labelled "company". No model change fixes this; the labelling guide must.
+
+### 7.8 Recommendation to the triage team
+
+**Advance the GCN to a supervised pilot, not to unsupervised auto-labelling.**
+
+| Finding | Evidence | Action |
+|---|---|---|
+| The GCN is much better than the baseline | Macro-F1 0.945 vs 0.776; TV show recall 0.92 vs 0.56 | Use the GCN, not a feature-only model |
+| Its confidence is honest on average | ECE 0.015 without scaling | Confidence can drive the routing rule |
+| The 97 % rule auto-labels 95 % of pages, but at 96.3 % accuracy | Section 7.4 | Add a safety margin: choose the threshold for 98 % on validation, then confirm it on a new labelled batch before go-live. This changes the rule, so it must be tested on data not used here. |
+| Some errors are confident (59 of 144 stable errors at ≥ 0.9) | Section 7.7 | Also send to a human any page where the GCN and the MLP disagree, and any page with ≤ 2 links. Both rules are untested proposals. |
+| Some "errors" are label problems | NASA, laSexta | Add guidance for broadcasters and government agencies, then re-audit those labels |
+| It is cheap | 59 ms for the whole graph, 0.87 GB, 53 s to retrain | Retraining on a schedule is practical on a laptop CPU |
 
 ---
 
@@ -290,7 +388,8 @@ pip install torch==2.14.1 torch_geometric==2.8.1 scikit-learn==1.9.1 matplotlib=
 python dataset.py        # download, verify and audit the data
 python train.py tune     # grid search on validation (writes results/tuning.json)
 python train.py final    # 5-seed final runs, test scores, checkpoints, curves
-python predict.py        # TODO: metrics, calibration, reject rule, t-SNE
+python predict.py        # test metrics, calibration, reject rule, t-SNE, latency, failures
+python predict.py --nodes 9762 4593   # also draw the 2-hop neighbourhood of these pages
 ```
 
 Example output of `python dataset.py`:
@@ -335,7 +434,8 @@ GNN_49250523/
 ├── dataset.py      download, clean, split, leakage check, DropEdge, audit
 ├── modules.py      NodeClassifier interface, MLP, GCN, build_model (PyTorch only, no NumPy)
 ├── train.py        sourced grid, test-label lock, training, tuning, final runs, curves
-├── predict.py      TODO
+├── calibrate.py    temperature scaling, ECE, threshold choice, reject report
+├── predict.py      loads checkpoints; test metrics, calibration, reject rule, figures, failures
 ├── results/        tuning and final results (JSON, logs, plots)
 └── pyproject.toml  Ruff configuration
 ```
@@ -362,6 +462,7 @@ GNN_49250523/
 | 22 Oct | Tuning v1 → v2 | See Section 5.4. |
 | 22 Oct | Tuning v2 complete | GCN-4, dropout 0.5, no DropEdge, lr 0.01 chosen (validation macro-F1 0.952). Depth 8 did not beat depth 4. |
 | 22 Oct | Final runs (seeds 3–7) | GCN test macro-F1 0.945 ± 0.002, MLP 0.776 ± 0.004. AC1 passes. |
+| 23 Oct | `calibrate.py`, `predict.py` | AC2, AC5 pass; AC3 fails narrowly (96.3 % vs 97 %), reported as is. 144 stable failures; 5 representative cases chosen, one per trigger. |
 
 ---
 
@@ -370,6 +471,9 @@ GNN_49250523/
 - **One split.** Shchur et al. use 100 splits × 20 seeds and show that one fixed split can mislead. This study uses 1 split × 5 seeds because of time; split variation is not measured.
 - **Transductive only.** Results apply to this fixed graph, not to pages that join later.
 - **Validation reuse.** The validation set guided early stopping, the grid, the v1 → v2 change, the temperature and the threshold, so validation scores are slightly optimistic. The test set was used for none of these.
+- **Threshold with no margin.** The AC3 rule was fixed before the results and met its accuracy target exactly on validation, so it fell short on test (Section 7.4).
+- **No GPU.** Memory is CPU process memory, not GPU VRAM.
+- **Untested proposals.** The extra routing rules in Section 7.8 were suggested after looking at test failures and have not been evaluated.
 - **Method of a source.** Rong et al. selected their reported settings by best *test* accuracy. Only their values are used here, not their selection method.
 
 ---
@@ -390,7 +494,7 @@ GNN_49250523/
 
 | Tool | Used for | How I verified it |
 |---|---|---|
-| Claude Code (Claude Opus 5.5, Anthropic) | Drafting `dataset.py`, `modules.py`, `train.py` and this README; the data audit (found the wrong label order and the self-loops); extracting hyperparameters from the three reference papers; explaining concepts (seeds, message passing, backpropagation, leakage) | Every file passes Ruff and was run before each commit. Tests: split disjointness, a planted split overlap is caught, test labels cannot enter the loss, parameter counts match hand calculations, labels match the MUSAE file for all pages. Hyperparameter values were taken from text extracted from the paper PDFs, with the passages quoted. I reviewed each commit before it was made and questioned the design choices (seeds, split, tuning, leakage) until I could explain them. TODO: confirm before submission that I have read the quoted passages myself. |
+| Claude Code (Claude Opus 5.5, Anthropic) | Drafting `dataset.py`, `modules.py`, `train.py`, `calibrate.py`, `predict.py` and this README; the data audit (found the wrong label order and the self-loops); extracting hyperparameters from the three reference papers; explaining concepts (seeds, message passing, backpropagation, leakage) | Every file passes Ruff and was run before each commit. Tests: split disjointness, a planted split overlap is caught, test labels cannot enter the loss, parameter counts match hand calculations, labels match the MUSAE file for all pages. Hyperparameter values were taken from text extracted from the paper PDFs, with the passages quoted. I reviewed each commit before it was made and questioned the design choices (seeds, split, tuning, leakage) until I could explain them. TODO: confirm before submission that I have read the quoted passages myself. |
 | OpenAI Codex CLI 0.163.0 | A critique of the feasibility review | I checked each point against the data and code. Accepted: the self-loop count, test-set reuse, uncalibrated ECE label, transductive wording, threshold rule. Rejected: removing the t-SNE plot (the spec requires it). |
 
 AI-assisted commits carry a `Co-Authored-By` trailer.
