@@ -1,7 +1,7 @@
-"""Node classifiers for Facebook Page-Page: an MLP baseline.
+"""Node classifiers for Facebook Page-Page: an MLP baseline and a multi-layer GCN.
 
-Every model shares one interface, ``forward(x, edge_index) -> logits``, so the
-training and prediction scripts can use any model without knowing which it is.
+Both models share one interface, ``forward(x, edge_index) -> logits``, so the
+training and prediction scripts can use either without knowing which it is.
 Only PyTorch and PyTorch Geometric are used here (no NumPy), as the spec requires.
 """
 
@@ -10,6 +10,7 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 from torch import nn
+from torch_geometric.nn import GCNConv
 
 
 class NodeClassifier(nn.Module):
@@ -85,14 +86,66 @@ class MLP(NodeClassifier):
         return self.out(F.dropout(h, self.dropout, self.training))
 
 
-MODELS: dict[str, type[NodeClassifier]] = {"mlp": MLP}
+class GCN(NodeClassifier):
+    """Multi-layer graph convolutional network (Kipf & Welling, 2017).
+
+    Each layer computes ``ReLU(D^-1/2 (A + I) D^-1/2 H W)``: every page takes a
+    degree-weighted average of its own and its neighbours' features, then
+    applies a shared weight matrix. ``L`` layers reach ``L`` hops.
+
+    Layers between hidden layers of equal width add a residual connection
+    (``h = h + conv(h)``), so a deeper model can keep each page's own signal
+    instead of averaging it away (over-smoothing). A 2-layer GCN has no such
+    layer, so it matches the feasibility smoke test exactly.
+
+    Args:
+        in_dim: Number of input features per node.
+        hidden_dim: Width of every hidden layer.
+        num_classes: Number of output classes.
+        num_layers: Number of GCN layers (at least 2).
+        dropout: Probability of zeroing each hidden unit during training.
+
+    Raises:
+        ValueError: If ``num_layers`` is less than 2.
+    """
+
+    def __init__(
+        self,
+        in_dim: int,
+        hidden_dim: int,
+        num_classes: int,
+        num_layers: int = 2,
+        dropout: float = 0.5,
+    ):
+        """Create the GCN layers."""
+        super().__init__()
+        if num_layers < 2:
+            raise ValueError(f"num_layers must be at least 2, got {num_layers}")
+        self.first = GCNConv(in_dim, hidden_dim)
+        self.middle = nn.ModuleList(GCNConv(hidden_dim, hidden_dim) for _ in range(num_layers - 2))
+        self.last = GCNConv(hidden_dim, num_classes)
+        self.dropout = dropout
+
+    def embed(self, x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
+        """Return the output of the last hidden layer."""
+        h = F.relu(self.first(x, edge_index))
+        for conv in self.middle:
+            h = h + F.relu(conv(F.dropout(h, self.dropout, self.training), edge_index))
+        return h
+
+    def classify(self, h: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
+        """Return logits from the final GCN layer."""
+        return self.last(F.dropout(h, self.dropout, self.training), edge_index)
+
+
+MODELS: dict[str, type[NodeClassifier]] = {"mlp": MLP, "gcn": GCN}
 
 
 def build_model(name: str, in_dim: int, num_classes: int, **kwargs: object) -> NodeClassifier:
     """Create a model by name.
 
     Args:
-        name: ``"mlp"``.
+        name: ``"mlp"`` or ``"gcn"``.
         in_dim: Number of input features per node.
         num_classes: Number of output classes.
         **kwargs: Passed to the model, e.g. ``hidden_dim``, ``num_layers``, ``dropout``.
