@@ -267,43 +267,113 @@ The MLP gets the same dropout and learning-rate values as the GCN. [S] (Sec. 3) 
 
 ### 5.3 Protocol
 
-1. **Tune:** every setting is trained with model seeds 0, 1, 2. The setting with the highest **mean** validation macro-F1 wins (Shchur et al. also select by mean validation score). Averaging over 3 seeds stops a setting from winning by luck.
-2. **Final:** the winning setting of each model is trained with **new** seeds 3–7 and scored on test once per seed. Results are reported as mean ± standard deviation.
+Two kinds of seed are used (Section 3.3). The **split seed** (3710) is fixed and decides which pages are in train, validation and test. **Model seeds** decide the random start weights, dropout and DropEdge patterns. Each model seed is a different, equally valid training run of the same setting.
+
+1. **Tune (validation only).** A *setting* is one combination of hyperparameter values, e.g. "4 layers, dropout 0.5, *p* = 0, learning rate 0.01". Every setting is trained 3 times, with model seeds 0, 1 and 2, and scored on validation. The setting with the highest **mean** validation macro-F1 over its 3 runs is chosen ([S] also selects by mean validation score).
+2. **Final (test).** The chosen setting is trained again with **new** model seeds 3, 4, 5, 6 and 7. Each of the 5 models is scored on test once. All 5 scores are reported, as mean ± standard deviation and one by one ([Section 7.1](#71-test-macro-f1-ac1)).
+
+**Why this is not seed hacking.** Seed hacking means trying many seeds and reporting the luckiest. Here:
+
+| Risk | Control |
+|---|---|
+| Picking the luckiest seed | No seed is picked. Seeds are chosen for *settings*, and the choice uses the mean of all 3 runs, so one lucky run cannot win alone. |
+| A setting that won by luck on seeds 0–2 | The final runs use new seeds 3–7, so any luck from seeds 0–2 does not carry over to the reported score. |
+| Hiding bad runs | Every final seed is reported, including the worst (GCN 0.942). |
+| Changing seeds after seeing results | The seed lists are constants in `train.py` (`TUNE_SEEDS`, `FINAL_SEEDS`), set before the first tuning run and never changed. |
+| Choosing using test | Test labels are hidden during tuning (Section 6); test is scored once per final seed. |
 
 ### 5.4 Tuning history
 
-**v1 (22 Oct, superseded).** 24 GCN + 4 MLP settings × 3 seeds, fixed 200 epochs (Kipf & Welling). Full results: [`results/tuning_v1.json`](results/tuning_v1.json).
+Each table row is one setting. **Validation macro-F1: mean** is the average of its 3 runs (model seeds 0, 1, 2); **std** is the standard deviation of those 3 runs, i.e. how much the score changes with the seed. Rows are ranked by the mean within each model; the chosen setting is in **bold**. The MLP has no layers or DropEdge to tune, so it always has 2 layers and *p* = 0.
 
-| Validation macro-F1 (lr 0.01) | dropout 0.5, *p* 0 | 0.5, 0.3 | 0.8, 0 | 0.8, 0.3 |
-|---|---|---|---|---|
-| GCN-2 | 0.923 | 0.921 | 0.920 | 0.916 |
-| GCN-3 | 0.942 | 0.937 | 0.938 | 0.930 |
-| GCN-4 | **0.948** | 0.941 | 0.945 | 0.935 |
-| MLP | 0.780 | – | 0.768 | – |
+**v1 (22 Oct, superseded).** 24 GCN + 4 MLP settings × 3 seeds = 84 runs. Each run trained for at most 200 epochs ([K]), keeping the epoch with the lowest validation loss. Full results: [`results/tuning_v1.json`](results/tuning_v1.json), [`results/tuning_v1.log`](results/tuning_v1.log).
+
+| Rank | Model | Layers | Dropout | DropEdge *p* | Learning rate | Validation macro-F1: mean of 3 seeds | Std of 3 seeds |
+|---|---|---|---|---|---|---|---|
+| 1 | GCN | 4 | 0.5 | 0.0 | 0.01 | **0.9481** | 0.0010 |
+| 2 | GCN | 4 | 0.5 | 0.0 | 0.005 | 0.9458 | 0.0020 |
+| 3 | GCN | 4 | 0.8 | 0.0 | 0.01 | 0.9445 | 0.0016 |
+| 4 | GCN | 3 | 0.5 | 0.0 | 0.01 | 0.9424 | 0.0005 |
+| 5 | GCN | 4 | 0.5 | 0.3 | 0.01 | 0.9413 | 0.0022 |
+| 6 | GCN | 4 | 0.8 | 0.0 | 0.005 | 0.9401 | 0.0019 |
+| 7 | GCN | 4 | 0.5 | 0.3 | 0.005 | 0.9395 | 0.0003 |
+| 8 | GCN | 3 | 0.5 | 0.0 | 0.005 | 0.9395 | 0.0013 |
+| 9 | GCN | 3 | 0.8 | 0.0 | 0.01 | 0.9381 | 0.0011 |
+| 10 | GCN | 3 | 0.5 | 0.3 | 0.01 | 0.9374 | 0.0007 |
+| 11 | GCN | 3 | 0.8 | 0.0 | 0.005 | 0.9353 | 0.0014 |
+| 12 | GCN | 4 | 0.8 | 0.3 | 0.01 | 0.9345 | 0.0011 |
+| 13 | GCN | 3 | 0.5 | 0.3 | 0.005 | 0.9334 | 0.0009 |
+| 14 | GCN | 4 | 0.8 | 0.3 | 0.005 | 0.9331 | 0.0011 |
+| 15 | GCN | 3 | 0.8 | 0.3 | 0.01 | 0.9302 | 0.0009 |
+| 16 | GCN | 3 | 0.8 | 0.3 | 0.005 | 0.9278 | 0.0021 |
+| 17 | GCN | 2 | 0.5 | 0.0 | 0.01 | 0.9230 | 0.0013 |
+| 18 | GCN | 2 | 0.5 | 0.3 | 0.01 | 0.9208 | 0.0015 |
+| 19 | GCN | 2 | 0.8 | 0.0 | 0.01 | 0.9195 | 0.0016 |
+| 20 | GCN | 2 | 0.5 | 0.0 | 0.005 | 0.9194 | 0.0013 |
+| 21 | GCN | 2 | 0.5 | 0.3 | 0.005 | 0.9192 | 0.0010 |
+| 22 | GCN | 2 | 0.8 | 0.0 | 0.005 | 0.9171 | 0.0017 |
+| 23 | GCN | 2 | 0.8 | 0.3 | 0.01 | 0.9163 | 0.0011 |
+| 24 | GCN | 2 | 0.8 | 0.3 | 0.005 | 0.9145 | 0.0023 |
+| 1 | MLP | 2 | 0.5 | 0.0 | 0.01 | **0.7795** | 0.0001 |
+| 2 | MLP | 2 | 0.8 | 0.0 | 0.01 | 0.7682 | 0.0012 |
+| 3 | MLP | 2 | 0.5 | 0.0 | 0.005 | 0.7676 | 0.0026 |
+| 4 | MLP | 2 | 0.8 | 0.0 | 0.005 | 0.7620 | 0.0007 |
 
 Two problems led to v2:
 
-1. **The epoch limit cut training short.** Almost every run had its best epoch between 185 and 200, so validation loss was still falling at the limit. This also biased the grid towards fast-learning settings (lr 0.01, dropout 0.5). Fix: Shchur et al.'s early stopping (patience 50, max 100,000 epochs).
-2. **The best depth was at the edge of the grid** (2 → 3 → 4 still rising). Fix: add depth 8, the next value tested by Rong et al.
+1. **The epoch limit cut training short.** Almost every run had its best epoch between 185 and 200, so validation loss was still falling at the limit. This also favoured settings that learn fast (learning rate 0.01, dropout 0.5). Fix: [S]'s early stopping (patience 50, max 100,000 epochs, Section 5.1).
+2. **The best depth was at the edge of the grid.** Mean validation macro-F1 still rose from 2 to 3 to 4 layers. Fix: add 8 layers, the next depth tested by [R].
 
 These changes were based on validation results only; test labels stayed hidden (Section 6).
 
-**v2 (22 Oct, final).** 32 GCN + 4 MLP settings × 3 seeds with early stopping (patience 50). Total 136 min on the M4 CPU. Full results: [`results/tuning.json`](results/tuning.json), log: [`results/tuning_v2.log`](results/tuning_v2.log).
+**v2 (22 Oct, final).** 32 GCN + 4 MLP settings × 3 seeds = 108 runs, with early stopping. Total 136 min on the M4 CPU. Full results: [`results/tuning.json`](results/tuning.json), [`results/tuning_v2.log`](results/tuning_v2.log).
 
-| Validation macro-F1 (lr 0.01, mean ± std of 3 seeds) | dropout 0.5, *p* 0 | 0.5, 0.3 | 0.8, 0 | 0.8, 0.3 |
-|---|---|---|---|---|
-| GCN-2 | 0.927 ± 0.002 | 0.924 | 0.923 | 0.917 |
-| GCN-3 | 0.947 ± 0.002 | 0.940 | 0.942 | 0.934 |
-| GCN-4 | **0.952 ± 0.001** | 0.946 | 0.948 | 0.938 |
-| GCN-8 | 0.951 ± 0.001 | 0.947 | 0.948 | 0.942 |
-| MLP | 0.785 ± 0.001 | – | 0.772 | – |
+| Rank | Model | Layers | Dropout | DropEdge *p* | Learning rate | Validation macro-F1: mean of 3 seeds | Std of 3 seeds | Best epoch of each seed |
+|---|---|---|---|---|---|---|---|---|
+| 1 | GCN | 4 | 0.5 | 0.0 | 0.01 | **0.9517** | 0.0007 | 311, 363, 314 |
+| 2 | GCN | 8 | 0.5 | 0.0 | 0.005 | 0.9510 | 0.0018 | 371, 390, 311 |
+| 3 | GCN | 8 | 0.5 | 0.0 | 0.01 | 0.9507 | 0.0007 | 236, 327, 226 |
+| 4 | GCN | 4 | 0.5 | 0.0 | 0.005 | 0.9507 | 0.0016 | 292, 287, 495 |
+| 5 | GCN | 8 | 0.8 | 0.0 | 0.01 | 0.9478 | 0.0012 | 418, 335, 368 |
+| 6 | GCN | 4 | 0.8 | 0.0 | 0.01 | 0.9475 | 0.0004 | 398, 390, 453 |
+| 7 | GCN | 8 | 0.8 | 0.0 | 0.005 | 0.9474 | 0.0016 | 352, 370, 470 |
+| 8 | GCN | 8 | 0.5 | 0.3 | 0.01 | 0.9473 | 0.0029 | 552, 372, 463 |
+| 9 | GCN | 3 | 0.5 | 0.0 | 0.01 | 0.9470 | 0.0019 | 474, 317, 467 |
+| 10 | GCN | 8 | 0.5 | 0.3 | 0.005 | 0.9464 | 0.0022 | 449, 478, 351 |
+| 11 | GCN | 4 | 0.8 | 0.0 | 0.005 | 0.9462 | 0.0026 | 438, 601, 490 |
+| 12 | GCN | 4 | 0.5 | 0.3 | 0.005 | 0.9457 | 0.0013 | 443, 316, 787 |
+| 13 | GCN | 4 | 0.5 | 0.3 | 0.01 | 0.9455 | 0.0008 | 439, 432, 350 |
+| 14 | GCN | 3 | 0.5 | 0.0 | 0.005 | 0.9453 | 0.0020 | 610, 661, 666 |
+| 15 | GCN | 8 | 0.8 | 0.3 | 0.005 | 0.9425 | 0.0041 | 920, 992, 677 |
+| 16 | GCN | 3 | 0.8 | 0.0 | 0.005 | 0.9421 | 0.0021 | 451, 737, 678 |
+| 17 | GCN | 8 | 0.8 | 0.3 | 0.01 | 0.9420 | 0.0016 | 451, 622, 542 |
+| 18 | GCN | 3 | 0.8 | 0.0 | 0.01 | 0.9417 | 0.0017 | 362, 470, 410 |
+| 19 | GCN | 3 | 0.5 | 0.3 | 0.005 | 0.9407 | 0.0009 | 515, 673, 708 |
+| 20 | GCN | 3 | 0.5 | 0.3 | 0.01 | 0.9399 | 0.0024 | 304, 671, 343 |
+| 21 | GCN | 4 | 0.8 | 0.3 | 0.005 | 0.9386 | 0.0016 | 523, 408, 499 |
+| 22 | GCN | 4 | 0.8 | 0.3 | 0.01 | 0.9383 | 0.0019 | 368, 568, 404 |
+| 23 | GCN | 3 | 0.8 | 0.3 | 0.01 | 0.9338 | 0.0002 | 240, 303, 446 |
+| 24 | GCN | 3 | 0.8 | 0.3 | 0.005 | 0.9329 | 0.0019 | 578, 677, 561 |
+| 25 | GCN | 2 | 0.5 | 0.0 | 0.005 | 0.9271 | 0.0011 | 809, 806, 885 |
+| 26 | GCN | 2 | 0.5 | 0.0 | 0.01 | 0.9267 | 0.0020 | 530, 492, 432 |
+| 27 | GCN | 2 | 0.5 | 0.3 | 0.005 | 0.9240 | 0.0003 | 647, 857, 798 |
+| 28 | GCN | 2 | 0.5 | 0.3 | 0.01 | 0.9239 | 0.0015 | 367, 550, 385 |
+| 29 | GCN | 2 | 0.8 | 0.0 | 0.01 | 0.9231 | 0.0008 | 408, 451, 276 |
+| 30 | GCN | 2 | 0.8 | 0.0 | 0.005 | 0.9225 | 0.0006 | 814, 690, 489 |
+| 31 | GCN | 2 | 0.8 | 0.3 | 0.01 | 0.9172 | 0.0008 | 267, 367, 477 |
+| 32 | GCN | 2 | 0.8 | 0.3 | 0.005 | 0.9172 | 0.0004 | 651, 631, 591 |
+| 1 | MLP | 2 | 0.5 | 0.0 | 0.01 | **0.7852** | 0.0008 | 458, 373, 319 |
+| 2 | MLP | 2 | 0.5 | 0.0 | 0.005 | 0.7851 | 0.0030 | 490, 771, 513 |
+| 3 | MLP | 2 | 0.8 | 0.0 | 0.005 | 0.7730 | 0.0012 | 639, 613, 654 |
+| 4 | MLP | 2 | 0.8 | 0.0 | 0.01 | 0.7724 | 0.0022 | 370, 404, 226 |
 
 What v2 shows:
 
-1. **Early stopping fixed the cut-off.** Best epochs are now 226–992, all well past the old limit of 200 and far below the 100,000 cap. Every score rose a little (GCN-4: 0.948 → 0.952; MLP: 0.780 → 0.785).
-2. **Depth peaks at 4.** GCN-8 is not better than GCN-4 (0.951 vs 0.952), so the best depth is no longer at the edge of the grid. GCN-8 also takes about 2× the time per run.
-3. **DropEdge (*p* = 0.3) and dropout 0.8 lowered every GCN row**, the same as in v1.
-4. **Learning rate does not matter much.** In each pair, lr 0.005 is within 0.002 of lr 0.01, but it needs about 1.5× more epochs.
+1. **Early stopping fixed the cut-off.** Best epochs are now 226–992, all past the old limit of 200 and far below the 100,000 cap. The chosen settings scored a little higher than in v1 (GCN: 0.948 → 0.952; MLP: 0.780 → 0.785).
+2. **Depth peaks at 4 layers.** The best 8-layer setting (0.9510) is not better than the best 4-layer setting (0.9517), so the best depth is no longer at the edge of the grid. 8 layers also take about 2× the time per run.
+3. **DropEdge (*p* = 0.3) and dropout 0.8 lowered the score** for every GCN depth, as in v1.
+4. **Learning rate matters little.** For each pair of settings that differ only in learning rate, the scores are within 0.002, but 0.005 usually needs more epochs (0.9× to 1.9× as many; median about 1.5×).
+5. **Seed spread is small.** The std is at most 0.0041, and the gap between the top two GCN settings (0.0007) is no larger than the std of either: the top settings are close to tied. The 4-layer setting is chosen by the rule, and it is also the cheaper one.
 
 **Chosen settings** (highest mean validation macro-F1, unchanged from v1):
 
