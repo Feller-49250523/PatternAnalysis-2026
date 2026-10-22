@@ -2,7 +2,7 @@
 
 **Student number:** 49250523 · **Project:** 2.1 Classification · **Model:** multi-layer GNN (GCN) · **Difficulty:** Normal
 
-> **Status (22 Oct 2026):** data pipeline, models and training script are complete. Hyperparameter tuning (v2) is running. Sections marked **TODO** are filled in after the final runs.
+> **Status (22 Oct 2026):** data pipeline, models and training script are complete. Hyperparameter tuning is complete (Section 5.4); the final test runs are next. Sections marked **TODO** are filled in after the final runs.
 
 ## Contents
 
@@ -206,7 +206,31 @@ Two problems led to v2:
 
 These changes were based on validation results only; test labels stayed hidden (Section 6).
 
-**v2 (running).** 32 GCN + 4 MLP settings × 3 seeds with early stopping. TODO: table and chosen settings.
+**v2 (22 Oct, final).** 32 GCN + 4 MLP settings × 3 seeds with early stopping (patience 50). Total 136 min on the M4 CPU. Full results: [`results/tuning.json`](results/tuning.json), log: [`results/tuning_v2.log`](results/tuning_v2.log).
+
+| Validation macro-F1 (lr 0.01, mean ± std of 3 seeds) | dropout 0.5, *p* 0 | 0.5, 0.3 | 0.8, 0 | 0.8, 0.3 |
+|---|---|---|---|---|
+| GCN-2 | 0.927 ± 0.002 | 0.924 | 0.923 | 0.917 |
+| GCN-3 | 0.947 ± 0.002 | 0.940 | 0.942 | 0.934 |
+| GCN-4 | **0.952 ± 0.001** | 0.946 | 0.948 | 0.938 |
+| GCN-8 | 0.951 ± 0.001 | 0.947 | 0.948 | 0.942 |
+| MLP | 0.785 ± 0.001 | – | 0.772 | – |
+
+What v2 shows:
+
+1. **Early stopping fixed the cut-off.** Best epochs are now 226–992, all well past the old limit of 200 and far below the 100,000 cap. Every score rose a little (GCN-4: 0.948 → 0.952; MLP: 0.780 → 0.785).
+2. **Depth peaks at 4.** GCN-8 is not better than GCN-4 (0.951 vs 0.952), so the best depth is no longer at the edge of the grid. GCN-8 also takes about 2× the time per run.
+3. **DropEdge (*p* = 0.3) and dropout 0.8 lowered every GCN row**, the same as in v1.
+4. **Learning rate does not matter much.** In each pair, lr 0.005 is within 0.002 of lr 0.01, but it needs about 1.5× more epochs.
+
+**Chosen settings** (highest mean validation macro-F1, unchanged from v1):
+
+| Model | Layers | Dropout | DropEdge *p* | lr | Validation macro-F1 |
+|---|---|---|---|---|---|
+| GCN | 4 | 0.5 | 0 | 0.01 | 0.952 ± 0.001 |
+| MLP | 2 | 0.5 | 0 | 0.01 | 0.785 ± 0.001 |
+
+The gap between GCN and MLP (+0.167 macro-F1) is the value the graph edges add. Tuning stops here: the next changes would be chosen after looking at these validation scores again, which adds more selection bias (Section 12).
 
 ---
 
@@ -318,6 +342,7 @@ GNN_49250523/
 | 22 Oct | `dataset.py`, `modules.py` committed | Ruff, type hints, Google docstrings. |
 | 22 Oct | Hyperparameter sources | Every grid value traced to Kipf & Welling, Shchur et al. or Rong et al. Dropout 0.3 and DropEdge 0.2 replaced by sourced values 0.8 and 0.3. Learning rate added to the grid for fairness to the MLP. |
 | 22 Oct | Tuning v1 → v2 | See Section 5.4. |
+| 22 Oct | Tuning v2 complete | GCN-4, dropout 0.5, no DropEdge, lr 0.01 chosen (validation macro-F1 0.952). Depth 8 did not beat depth 4. |
 
 ---
 
