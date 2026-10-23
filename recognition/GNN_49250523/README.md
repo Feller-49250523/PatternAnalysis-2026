@@ -151,8 +151,8 @@ No isolated nodes and no NaNs. Median degree 7, maximum 709. Class counts 6,495 
 | Split | Pages | How its labels are used | Results |
 |---|---|---|---|
 | Train (70 %) | 15,729 | **Learning.** Only these labels enter the cross-entropy loss. Backpropagation computes the gradient of that loss, and Adam uses it to update the weights $W$. These are the only labels that change the model. | Train loss curve, [Section 7.1](#71-test-macro-f1-ac1) |
-| Validation (15 %) | 3,370 | **Choosing, never learning.** Read after each epoch with no gradient (no backpropagation), for: early stopping ([5.1](#51-training)); picking the hyperparameters ([5.4](#54-tuning-history)); fitting the temperature ([7.3](#73-calibration-ac2)); choosing the reject threshold ([7.4](#74-reject-option-ac3)). | [Section 5.4](#54-tuning-history) |
-| Test (15 %) | 3,371 | **Reporting only.** Hidden (set to −1) during training and tuning ([Section 6](#6-leakage-controls)). Read once per final model, after every choice is frozen. | [Sections 7.1–7.7](#7-results) |
+| Validation (15 %) | 3,370 | **Choosing, never training the network.** These labels never update the network weights $W$. They are read after each epoch with no gradient, for early stopping ([5.1](#51-training)) and picking the hyperparameters ([5.4](#54-tuning-history)). After training they fit two post-hoc values: the temperature, one number learned by minimising validation NLL ([7.3](#73-calibration-ac2)), and the reject threshold ([7.4](#74-reject-option-ac3)). | [Section 5.4](#54-tuning-history) |
+| Test (15 %) | 3,371 | **Reporting only.** Hidden (set to −1) during training and tuning ([Section 6](#6-leakage-controls)). Read only after every choice is frozen: `train.py final` scores each final model, then `predict.py` re-scores the same saved checkpoints for the detailed metrics. No choice was made between or after these readings. | [Sections 7.1–7.7](#7-results) |
 
 A training page and a test page can be neighbours. The test page's features then flow into the training page's average, but its **label** never does. This is the standard transductive protocol (Kipf & Welling, 2017).
 
@@ -286,7 +286,7 @@ Two kinds of seed are used (Section 3.3). The **split seed** (3710) is fixed and
 | A setting that won by luck on seeds 0–2 | The final runs use new seeds 3–7, so any luck from seeds 0–2 does not carry over to the reported score. |
 | Hiding bad runs | Every final seed is reported, including the worst (GCN 0.942). |
 | Changing seeds after seeing results | The seed lists are constants in `train.py` (`TUNE_SEEDS`, `FINAL_SEEDS`), set before the first tuning run and never changed. |
-| Choosing using test | Test labels are hidden during tuning (Section 6); test is scored once per final seed. |
+| Choosing using test | Test labels are hidden during tuning (Section 6); test is read only after every choice is frozen. |
 
 ### 5.4 Tuning history
 
@@ -433,7 +433,7 @@ The gap between GCN and MLP (+0.167 macro-F1) is the value the graph edges add. 
 | Disjoint masks that cover every node | `dataset.check_split` | `ValueError` |
 | Test labels replaced by −1 during training and tuning | `train.hide_test_labels` | `cross_entropy` raises `IndexError` if a test page enters the loss |
 | No scoring of hidden labels | `train.evaluate` | `ValueError` |
-| Test scored only in `final`, once per seed, after all choices are frozen | `train.final` | – |
+| Test scored only after all choices are frozen: in `final`, then again on the same checkpoints by `predict.py` | `train.final`, `predict.main` | – |
 | Temperature and threshold fitted on validation only, then frozen | `predict.score_seed` (uses `calibrate.py`) | – |
 | Fresh split seed after the exploratory smoke test | `dataset.SPLIT_SEED` | – |
 
@@ -445,7 +445,7 @@ In the transductive setting, test pages' **features and edges** are visible duri
 
 ### 7.1 Test macro-F1 (AC1)
 
-The tuned setting of each model (Section 5.4) was trained with new seeds 3–7 and scored on the test split once per seed. Full output: [`results/final.json`](results/final.json), [`results/final.log`](results/final.log).
+The tuned setting of each model (Section 5.4) was trained with new seeds 3–7 and scored on the test split (one score per seed). Full output: [`results/final.json`](results/final.json), [`results/final.log`](results/final.log).
 
 | Model | Test macro-F1 (mean ± std, 5 seeds) | Per seed | Params | Train time / run | Best epochs |
 |---|---|---|---|---|---|
