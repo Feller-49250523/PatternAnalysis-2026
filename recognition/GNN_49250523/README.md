@@ -179,7 +179,7 @@ The two bullets above are as checked off on 22 Oct. What happened next: the scop
 | No feature scaling | The SVD features are used as given. They are dense but not centred (column means range from −0.04 to 0.76). Scaling was not tuned; any scaling experiment would have to be chosen on validation. |
 | Check for NaNs and size mismatches | Raises `ValueError` instead of training on bad data. |
 
-**Labels:** the dataset README's label order matches page types for only 31 % of pages. Alphabetical order (0 company, 1 government, 2 politician, 3 tvshow) matches 100 %.
+**Labels:** the dataset README says that label numbers [0, 1, 2, 3] correspond to [tvshow, government, company, politician], but they actually correspond to [company, government, politician, tvshow]. Checked against each page's type in the original MUSAE release: the README's order is right for only 31 % of pages (only government, number 1, matches), and the actual order for 100 %. The label numbers are used unchanged; only the names attached to them (`CLASS_NAMES` in `dataset.py`) differ from the dataset README.
 
 ### 3.3 Split
 
