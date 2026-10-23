@@ -682,6 +682,7 @@ GNN_49250523/
 | 22 Oct | Tuning v2 complete | GCN-4, dropout 0.5, no DropEdge, lr 0.01 chosen (validation macro-F1 0.952). Depth 8 did not beat depth 4. |
 | 22 Oct | Final runs (seeds 3–7) | GCN test macro-F1 0.945 ± 0.002, MLP 0.776 ± 0.004. AC1 passes. |
 | 23 Oct | `calibrate.py`, `predict.py` | AC2, AC5 pass; AC3 fails narrowly (96.3 % vs 97 %), reported as is. 144 stable failures; 5 representative cases chosen, one per trigger. |
+| 23 Oct | README critique by a third AI tool | Added per-class F1, confusion matrix, tuning summary; scored the routing rules on validation and dropped the few-links rule. See Section 14. |
 
 ---
 
@@ -713,7 +714,8 @@ GNN_49250523/
 
 | Tool | Used for | How I verified it |
 |---|---|---|
-| Claude Code (Claude Opus 5.5, Anthropic) | Drafting `dataset.py`, `modules.py`, `train.py`, `calibrate.py`, `predict.py` and this README; the data audit (found the wrong label order and the self-loops); extracting hyperparameters from the three reference papers; explaining concepts (seeds, message passing, backpropagation, leakage) | Every file passes Ruff and was run before each commit. Tests: split disjointness, a planted split overlap is caught, test labels cannot enter the loss, parameter counts match hand calculations, labels match the MUSAE file for all pages. Hyperparameter values were taken from text extracted from the paper PDFs, with the passages quoted. I reviewed each commit before it was made and questioned the design choices (seeds, split, tuning, leakage) until I could explain them. TODO: confirm before submission that I have read the quoted passages myself. |
+| Claude Code (Claude Opus 5.5, Anthropic) | Drafting `dataset.py`, `modules.py`, `train.py`, `calibrate.py`, `predict.py` and this README; the data audit (found the wrong label order and the self-loops); extracting hyperparameters from the three reference papers; explaining concepts (seeds, message passing, backpropagation, leakage); implementing the accepted Gemini suggestions (row below) | Every file passes Ruff and was run before each commit. Checks run during development (not committed as a test suite): split disjointness, a planted split overlap is caught, test labels cannot enter the loss, parameter counts match hand calculations, labels match the MUSAE file for all pages. Hyperparameter values were taken from text extracted from the paper PDFs, with the passages quoted. I reviewed each commit before it was made and questioned the design choices (seeds, split, tuning, leakage) until I could explain them. TODO: confirm before submission that I have read the quoted passages myself. |
 | OpenAI Codex CLI 0.163.0 | A critique of the feasibility review | I checked each point against the data and code. Accepted: the self-loop count, test-set reuse, uncalibrated ECE label, transductive wording, threshold rule. Rejected: removing the t-SNE plot (the spec requires it). |
+| Google Gemini | A critique of the README draft, plus a rewritten version | The rewrite was not used. Each suggestion was checked against the code and results. Accepted: per-class F1, a confusion matrix, a per-depth tuning summary with the full tables collapsed, scoring the routing rules on validation, the expected test-set overlap, clearer dropout wording. Rejected: claims in the rewrite that did not match the code or history (input dropout in deeper models, a unit test that does not exist, seed lists committed before tuning) and wording that stated hedged findings as certain. |
 
 AI-assisted commits carry a `Co-Authored-By` trailer.
