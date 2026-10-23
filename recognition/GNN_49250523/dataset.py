@@ -1,4 +1,6 @@
-"""Data loading, preprocessing and leakage-free splitting for Facebook Page-Page.
+"""dataset.py: Data loading, preprocessing and leakage-free splitting for Facebook Page-Page.
+
+Author: 49250523 (COMP3710 Pattern Recognition project, 2026)
 
 Source: the course-specified release github.com/gayanku/facebook_page-page_dataset
 (``facebook.npz``), built from MUSAE (Rozemberczki et al., 2021).

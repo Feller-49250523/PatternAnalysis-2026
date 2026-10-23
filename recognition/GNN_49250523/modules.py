@@ -1,4 +1,6 @@
-"""Node classifiers for Facebook Page-Page: an MLP baseline and a multi-layer GCN.
+"""modules.py: Node classifiers for Facebook Page-Page: an MLP baseline and a multi-layer GCN.
+
+Author: 49250523 (COMP3710 Pattern Recognition project, 2026)
 
 Both models share one interface, ``forward(x, edge_index) -> logits``, so the
 training and prediction scripts can use either without knowing which it is.

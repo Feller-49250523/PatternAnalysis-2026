@@ -1,4 +1,6 @@
-"""Calibration and reject option: temperature scaling, ECE and a frozen threshold.
+"""calibrate.py: Calibration and reject option: temperature scaling, ECE and a frozen threshold.
+
+Author: 49250523 (COMP3710 Pattern Recognition project, 2026)
 
 Every fit in this file uses validation logits only. The fitted temperature and
 threshold are then applied, unchanged, to the test logits (acceptance criteria

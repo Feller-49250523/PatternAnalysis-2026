@@ -1,4 +1,6 @@
-"""Evaluate the saved checkpoints: test metrics, calibration, reject option and failures.
+"""predict.py: Evaluate saved checkpoints: test metrics, calibration, reject option, failures.
+
+Author: 49250523 (COMP3710 Pattern Recognition project, 2026)
 
 Usage:
     python predict.py                    # metrics, figures and failure candidates

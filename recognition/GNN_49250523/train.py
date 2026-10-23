@@ -1,8 +1,10 @@
-"""Train, tune and test the MLP baseline and the GCN on Facebook Page-Page.
+"""train.py: Train, tune and test the MLP baseline and the GCN on Facebook Page-Page.
+
+Author: 49250523 (COMP3710 Pattern Recognition project, 2026)
 
 Usage:
     python train.py tune     # grid search, model seeds 0-2, scored on validation
-    python train.py final    # best settings, model seeds 3-7, tested once each
+    python train.py final    # best settings, model seeds 3-7, scored on test
 
 Every value in the grid comes from a published source (see ``GRIDS``), and so
 do the fixed settings in ``Config``. Test
