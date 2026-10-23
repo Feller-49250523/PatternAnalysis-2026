@@ -289,7 +289,7 @@ Two kinds of seed are used (Section 3.3). The **split seed** (3710) is fixed and
 | Picking the luckiest seed | No seed is picked. Seeds are chosen for *settings*, and the choice uses the mean of all 3 runs, so one lucky run cannot win alone. |
 | A setting that won by luck on seeds 0–2 | The final runs use new seeds 3–7, so any luck from seeds 0–2 does not carry over to the reported score. |
 | Hiding bad runs | Every final seed is reported, including the worst (GCN 0.942). |
-| Changing seeds after seeing results | The seed lists are constants in `train.py` (`TUNE_SEEDS`, `FINAL_SEEDS`), set before the first tuning run and never changed. |
+| Changing seeds after seeing results | The seed lists are constants in `train.py` (`TUNE_SEEDS`, `FINAL_SEEDS`), set before the first tuning run and never changed. They were first committed together with the v1 tuning results, so the git history alone cannot show this order. |
 | Choosing using test | Test labels are hidden during tuning (Section 6); test is read only after every choice is frozen. |
 
 ### 5.4 Tuning history
@@ -443,6 +443,8 @@ Most of the gap between GCN and MLP (+0.167 macro-F1) comes from the graph: GCN-
 
 In the transductive setting, test pages' **features and edges** are visible during message passing; their **labels** are not. This is the standard protocol (Kipf & Welling, 2017).
 
+**AC4 passes.** Every control above is in the code, and the split check was confirmed during development to raise `ValueError` on a planted overlap. The one known weakness, the 491 test pages shared with the smoke test, is stated in Section 3.3.
+
 ---
 
 ## 7. Results
@@ -508,14 +510,14 @@ Temperature *T* is fitted on validation logits by minimising the negative log-li
 
 ### 7.4 Reject option (AC3)
 
-**Rule** (fixed in the feasibility review): on validation, choose the lowest confidence threshold at which the auto-labelled pages are ≥ 97 % correct; freeze it; apply it to test. Pages below the threshold go to a human.
+**Rule.** The checked-off feasibility review fixed the targets (≥ 80 % coverage at ≥ 97 % accuracy) and that the threshold is chosen on validation. The exact selection rule below was written into this README on 22 Oct, before any threshold or test result had been computed (the threshold code was added on 23 Oct): on validation, choose the lowest confidence threshold at which the auto-labelled pages are ≥ 97 % correct; freeze it; apply it to test. Pages below the threshold go to a human.
 
 | | Threshold | Test coverage (auto-labelled) | Test accuracy of auto-labels | Coverage per class (co / gov / pol / tv) |
 |---|---|---|---|---|
 | GCN-4 | 0.69 ± 0.02 | **95.3 %** | **96.3 %** | 96 / 95 / 96 / 93 % |
 | MLP | 0.90 ± 0.01 | 44.4 % | 95.7 % | 48 / 43 / 48 / 34 % |
 
-**AC3 fails narrowly.** Coverage passes easily (95 % vs the 80 % target), but accuracy is 96.3 %, below 97 %, for all 5 seeds (96.2–96.5 %). The cause: the rule places the threshold exactly at 97 % on validation, and test accuracy is about 0.5 points lower than validation (Section 7.1). A rule with no safety margin fails on any small validation-to-test gap. The threshold was **not** changed after seeing the test result, because that would use test labels to make a choice (Section 6). Section 7.8 proposes a margin for deployment.
+**AC3 fails narrowly.** Coverage passes easily (95 % vs the 80 % target), but accuracy is 96.3 %, below 97 %, for all 5 seeds (96.2–96.5 %). The cause: the rule places the threshold exactly at 97 % on validation, and the accuracy of the auto-labelled pages drops 0.7 points from validation (97.0 %) to test (96.3 %), in line with the small validation-to-test drop in macro-F1 (Section 7.1). A rule with no safety margin fails on any small validation-to-test gap. The threshold was **not** changed after seeing the test result, because that would use test labels to make a choice (Section 6). Section 7.8 proposes a margin for deployment.
 
 The rule refers TV show pages slightly more often (93 % coverage vs 95–96 %), which matches TV show being the hardest class.
 
@@ -540,7 +542,7 @@ Apple M4 CPU, no GPU (the spec asks for peak GPU VRAM; this study ran on CPU, so
 
 144 test pages are wrong for **all 5** GCN seeds, so these are stable failures, not bad luck ([`results/failures.csv`](results/failures.csv)). The most common error pairs: tvshow → company (27), company → tvshow (22), politician → government (22), company → government (20). 59 of the 144 have mean confidence ≥ 0.9.
 
-Five representative cases, one per trigger. "Own-class links" is the share of the page's neighbours that have the page's true class. "MLP" shows whether the model without the graph gets the page right; this suggests whether an error comes from the graph or from the page's own features.
+Five representative cases, one per trigger. "Own-class links" is the share of the page's neighbours that have the page's true class. "MLP" shows whether the model without the graph gets the page right; this suggests whether an error comes from the graph or from the page's own features. The neighbourhood plots draw at most 40 first-hop pages and 3 second-hop pages per neighbour, so large neighbourhoods are sampled; link counts in the text are full counts.
 
 | # | Page | True → GCN | GCN conf. | Links | Own-class links | MLP (5 seeds) | Trigger |
 |---|---|---|---|---|---|---|---|
@@ -723,7 +725,7 @@ GNN_49250523/
 - **One split.** Shchur et al. use 100 splits × 20 seeds and show that one fixed split can mislead. This study uses 1 split × 5 seeds because of time; split variation is not measured.
 - **Transductive only.** Results apply to this fixed graph, not to pages that join later.
 - **Validation reuse.** The validation set guided early stopping, the grid, the v1 → v2 change, the temperature and the threshold, so validation scores are slightly optimistic. The test set was used for none of these.
-- **Threshold with no margin.** The AC3 rule was fixed before the results and met its accuracy target exactly on validation, so it fell short on test (Section 7.4).
+- **Threshold with no margin.** The AC3 rule was fixed before any threshold or test result was computed, and met its accuracy target exactly on validation, so it fell short on test (Section 7.4).
 - **No GPU.** Memory is CPU process memory, not GPU VRAM.
 - **Rules proposed after seeing test failures.** The extra routing rules in Section 7.8 were suggested after reading the test failures. They are scored on validation only, and none was adopted into the AC3 result; they still need confirming on new labelled data.
 - **Method of a source.** Rong et al. selected their reported settings by best *test* accuracy. Only their values are used here, not their selection method.
