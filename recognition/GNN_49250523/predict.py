@@ -53,6 +53,7 @@ LATENCY_REPEATS = 20
 CONFIDENT = 0.9  # a wrong page at or above this confidence is "confidently wrong"
 LOW_DEGREE = 2  # a page with this many links or fewer has little graph signal
 SAFETY_TARGET = 0.98  # Section 7.9: AC3 rule with a 1-point safety margin
+OPERATING_TARGETS = (0.97, 0.98, 0.99)  # Section 7.9: accuracy targets offered to the client
 
 
 def load_model(path: str, data: Data, seed: int) -> NodeClassifier:
@@ -222,6 +223,44 @@ def routing_on_validation(
         }
         for name, rows in results.items()
     }
+
+
+def operating_points(data: Data, gcn_probs: list[torch.Tensor]) -> dict:
+    """Report the coverage-accuracy trade-off for several accuracy targets.
+
+    For each target and each final seed, the threshold (minimum confidence score)
+    is chosen on validation with the AC3 rule, frozen, and then applied to test.
+    Nothing here is chosen on test; the test numbers are reported only.
+
+    Args:
+        data: Graph with real labels and split masks.
+        gcn_probs: Calibrated GCN probabilities of every node, one tensor per seed.
+
+    Returns:
+        For each target, the mean over seeds of the threshold and, for the
+        validation and test splits, coverage, accuracy of the auto-labelled pages
+        and the number of auto-labelled errors.
+    """
+    out = {}
+    for target in OPERATING_TARGETS:
+        rows = []
+        for probs in gcn_probs:
+            threshold = choose_threshold(probs[data.val_mask], data.y[data.val_mask], target)
+            if threshold is None:
+                continue
+            row = {"threshold": threshold}
+            for split, mask in (("val", data.val_mask), ("test", data.test_mask)):
+                conf, pred = probs[mask].max(1)
+                keep = conf >= threshold
+                wrong = int((pred[keep] != data.y[mask][keep]).sum())
+                row[f"{split}_coverage"] = keep.float().mean().item()
+                row[f"{split}_accuracy"] = 1 - wrong / max(int(keep.sum()), 1)
+                row[f"{split}_errors"] = wrong
+            rows.append(row)
+        out[str(target)] = {k: float(np.mean([r[k] for r in rows])) for k in rows[0]} | {
+            "seeds": len(rows)
+        }
+    return out
 
 
 def plot_reliability(before: torch.Tensor, after: torch.Tensor, y: torch.Tensor, path: str) -> None:
@@ -413,6 +452,7 @@ def main() -> None:
     report["routing_validation"] = routing_on_validation(
         data, probs_by_model["gcn"], probs_by_model["mlp"]
     )
+    report["operating_points"] = operating_points(data, probs_by_model["gcn"])
     with open(os.path.join(RESULTS, "predict.json"), "w") as f:
         json.dump(report, f, indent=2)
 
@@ -435,6 +475,11 @@ def main() -> None:
     print(f"latency: gcn {report['gcn_latency_seconds'] * 1000:.1f} ms")
     print(f"acceptance: {report['acceptance']}")
     print(f"failure candidates (GCN wrong for every seed): {n}")
+    for target, r in report["operating_points"].items():
+        print(
+            f"target {target}: threshold {r['threshold']:.3f}, "
+            f"test coverage {r['test_coverage']:.3f}, test accuracy {r['test_accuracy']:.4f}"
+        )
     for name, r in report["routing_validation"].items():
         print(f"validation {name}: coverage {r['coverage']:.3f}, accuracy {r['accuracy']:.4f}")
 

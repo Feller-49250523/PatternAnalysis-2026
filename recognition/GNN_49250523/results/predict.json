@@ -1,5 +1,5 @@
 {
-  "gcn_latency_seconds": 0.06078360401443206,
+  "gcn_latency_seconds": 0.05757775000529364,
   "gcn": {
     "per_seed": [
       {
@@ -388,7 +388,7 @@
       ]
     }
   },
-  "mlp_latency_seconds": 0.0013135414919815958,
+  "mlp_latency_seconds": 0.001187166984891519,
   "mlp": {
     "per_seed": [
       {
@@ -811,6 +811,38 @@
       "coverage": 0.8847477674484253,
       "accuracy": 0.98007757892913,
       "errors_auto_labelled": 59.4,
+      "seeds": 5
+    }
+  },
+  "operating_points": {
+    "0.97": {
+      "threshold": 0.6876249194145203,
+      "val_coverage": 0.9490801215171814,
+      "val_accuracy": 0.9701099559706396,
+      "val_errors": 95.6,
+      "test_coverage": 0.9527143239974976,
+      "test_accuracy": 0.9632018957751051,
+      "test_errors": 118.2,
+      "seeds": 5
+    },
+    "0.98": {
+      "threshold": 0.8436977148056031,
+      "val_coverage": 0.8847477674484253,
+      "val_accuracy": 0.98007757892913,
+      "val_errors": 59.4,
+      "test_coverage": 0.8954612970352173,
+      "test_accuracy": 0.9735673625206764,
+      "test_errors": 79.8,
+      "seeds": 5
+    },
+    "0.99": {
+      "threshold": 0.9767661571502686,
+      "val_coverage": 0.6391097903251648,
+      "val_accuracy": 0.9901549217023359,
+      "val_errors": 21.2,
+      "test_coverage": 0.6526846647262573,
+      "test_accuracy": 0.9866607822706337,
+      "test_errors": 29.4,
       "seeds": 5
     }
   }

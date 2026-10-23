@@ -13,9 +13,9 @@
 | TV-show recall (minority class) | 0.917 | 0.560 |
 | Calibration error (ECE), before → after temperature scaling | 0.014 → 0.015 | 0.036 → 0.034 |
 | Reject rule: pages auto-labelled / their accuracy | 95.3 % / 96.3 % (target ≥ 97 %) | 44.4 % / 95.7 % |
-| Parameters / full-graph inference (CPU) | 16,836 / 61 ms | 8,516 / 1.3 ms |
+| Parameters / full-graph inference (CPU) | 16,836 / 58 ms | 8,516 / 1.2 ms |
 
-**Recommendation:** pilot the GCN with human review of low-confidence pages, using a threshold chosen for 98 % validation accuracy (Section 7.9). Discussion of what the results mean: Section 7.8.
+**Recommendation:** pilot the GCN with human review of low-confidence pages. Where to set the threshold is a trade-off between manual reviews and wrong labels, so it should follow the client's review capacity and the cost of a wrong label (operating points in Section 7.9). Discussion of what the results mean: Section 7.8.
 
 ## Contents
 
@@ -573,10 +573,10 @@ Apple M4 CPU, no GPU (the spec asks for peak GPU VRAM; this study ran on CPU, so
 
 | | Parameters | Train time / run | Best epoch | Peak memory | Full-graph inference |
 |---|---|---|---|---|---|
-| GCN-4 | 16,836 | 53 s | 185–351 | 0.87 GB | 61 ms |
-| MLP | 8,516 | 4 s | 350–556 | (same process) | 1.3 ms |
+| GCN-4 | 16,836 | 53 s | 185–351 | 0.87 GB | 58 ms |
+| MLP | 8,516 | 4 s | 350–556 | (same process) | 1.2 ms |
 
-**AC5 passes** (limits: 10 min, 4 GB, 1 s). Inference is the median of 20 full-graph forward passes, for all 22,470 pages at once. The GCN costs about 46× the MLP's latency, but 61 ms for the whole graph is still small.
+**AC5 passes** (limits: 10 min, 4 GB, 1 s). Inference is the median of 20 full-graph forward passes, for all 22,470 pages at once. The GCN costs about 48× the MLP's latency, but 58 ms for the whole graph is still small.
 
 ### 7.7 Failure analysis
 
@@ -624,7 +624,7 @@ Five representative cases, one per trigger. "Own-class links" is the share of th
 
 **Why AC3 was missed.** The rule chose the threshold at which validation accuracy is exactly 97 %, and accuracy of the auto-labelled pages fell 0.7 points on test. A threshold with no safety margin fails on any small validation-to-test gap. On validation, a 98 % target still auto-labels 88.5 % of pages (Section 7.9).
 
-**Is the extra complexity worth it?** On this graph, yes. The GCN costs more than the MLP (2× the parameters, 53 s vs 4 s to train, 61 ms vs 1.3 ms for the whole graph), but all of these are small, and it adds +0.168 test macro-F1 and auto-labels more than twice as many pages at similar accuracy (95.3 % vs 44.4 %). More depth does not help: 8 layers score no better than 4 on validation (0.9510 vs 0.9517).
+**Is the extra complexity worth it?** On this graph, yes. The GCN costs more than the MLP (2× the parameters, 53 s vs 4 s to train, 58 ms vs 1.2 ms for the whole graph), but all of these are small, and it adds +0.168 test macro-F1 and auto-labels more than twice as many pages at similar accuracy (95.3 % vs 44.4 %). More depth does not help: 8 layers score no better than 4 on validation (0.9510 vs 0.9517).
 
 These conclusions rest on one data split and five seeds; Section 12 lists the limitations.
 
@@ -636,10 +636,25 @@ These conclusions rest on one data split and five seeds; Section 12 lists the li
 |---|---|---|
 | The GCN is much better than the baseline | Macro-F1 0.945 vs 0.776; TV show recall 0.92 vs 0.56 | Use the GCN, not a feature-only model |
 | Its confidence is honest on average | ECE 0.014 without scaling | Confidence can drive the routing rule |
-| The 97 % rule auto-labels 95 % of pages, but at 96.3 % accuracy | Section 7.4 | Add a safety margin: choose the threshold for 98 % on validation (88.5 % validation coverage, table below), then confirm it on a new labelled batch before go-live. This changes the rule, so it must be tested on data not used here. |
+| The 97 % target was a starting point, and it fell 0.7 points short on test | Section 7.4; operating points below | Let the client choose the threshold from the operating points below, based on review capacity and the cost of a wrong label; confirm the chosen point on a new labelled batch before go-live |
 | Some errors are confident (59 of 144 stable errors at ≥ 0.9) | Section 7.7; table below | Optionally also send to a human any page where the GCN and the MLP disagree. Do **not** add the "≤ 2 links" rule: on validation it refers 20 % more pages for +0.3 accuracy points. |
 | Some "errors" are label problems | NASA, laSexta | Add guidance for broadcasters and government agencies, then re-audit those labels |
-| It is cheap | 61 ms for the whole graph, 0.87 GB, 53 s to retrain | Retraining on a schedule is practical on a laptop CPU |
+| The model sees only two kinds of information | Each page has only its description features and its links | If the client can provide more page data (images, posts, page activity), test whether it reduces the remaining errors; see below |
+| It is cheap | 58 ms for the whole graph, 0.87 GB, 53 s to retrain | Retraining on a schedule is practical on a laptop CPU |
+
+**Operating points for the client.** Each threshold below is chosen on validation with the AC3 rule for a different accuracy target, frozen, and then applied once to test (`operating_points` in [`results/predict.json`](results/predict.json); mean over seeds 3–7; 3,371 test pages). Nothing is chosen on test.
+
+| Accuracy target (validation) | Threshold (minimum confidence) | Test pages sent to a human | Test accuracy of auto-labels | Wrong auto-labels on test | Extra reviews per error avoided (vs the row above) |
+|---|---|---|---|---|---|
+| 97 % (AC3) | 0.69 | 4.7 % | 96.3 % | 118 | – |
+| 98 % | 0.84 | 10.5 % | 97.4 % | 80 | about 5 |
+| 99 % | 0.98 | 34.7 % | 98.7 % | 29 | about 16 |
+
+- **The choice is a cost question.** Moving from the 97 % to the 98 % target costs about 5 extra manual reviews for each wrong label prevented; moving to 99 % costs about 16, and leaves only 65 % of pages auto-labelled (below AC3's 80 %). Which point is right depends on how much a wrong label costs the client compared with a manual review.
+- **At scale, review capacity decides.** The shares stay the same, but the counts grow with the number of pages. For 1 billion pages, the three rows would mean about 47 million, 105 million and 347 million manual reviews, and about 35 million, 24 million and 9 million wrong auto-labels. A client at that scale would set the threshold from how many reviews their team can do, and send the least confident pages first. These rates come from one 22,470-page graph and would need re-measuring on the client's own data.
+- **A gap on new data remains at every point.** Each target comes out 0.3–0.7 points lower on test than on validation, so the chosen point should be confirmed on fresh labelled pages.
+
+**More data per page.** The model sees only each page's 128 description features and its links. Some remaining errors (Chef's Table, laSexta) would probably be easier with more information about the page itself, such as its images, recent posts or activity. Adding these could lower the error rate at every operating point, but it is untested here, and it would cost compute: the GCN itself would stay small, but every image and post would first have to be turned into features by a separate model (for example a pretrained image or text encoder), once per page and again as content changes. For a large network that feature step would likely dominate the cost; it was not measured in this study. It would also depend on the client being allowed to use that data.
 
 **Extra routing rules, checked on validation only.** The rules below were proposed after reading the test failures (Section 7.7), so they are scored on the validation split, not on test (`routing_validation` in [`results/predict.json`](results/predict.json); mean over seeds 3–7; 3,370 validation pages).
 
@@ -785,6 +800,7 @@ GNN_49250523/
 - **Threshold with no margin.** The AC3 rule was fixed before any threshold or test result was computed, and met its accuracy target exactly on validation, so it fell short on test (Section 7.4).
 - **No GPU.** Memory is CPU process memory, not GPU VRAM.
 - **Rules proposed after seeing test failures.** The extra routing rules in Section 7.9 were suggested after reading the test failures. They are scored on validation only, and none was adopted into the AC3 result; they still need confirming on new labelled data.
+- **Limited page information.** Only the supplied description features and the links were available. Images, posts and other page data were not, so how much they would reduce errors, and at what compute cost, is unknown (Section 7.9).
 - **Method of a source.** Rong et al. selected their reported settings by best *test* accuracy. Only their values are used here, not their selection method.
 
 ---
