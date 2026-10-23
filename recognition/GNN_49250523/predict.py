@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import glob
 import json
 import os
 import textwrap
@@ -42,9 +41,9 @@ from calibrate import (
     fit_temperature,
     reject_report,
 )
-from dataset import CLASS_NAMES, get_data, load_page_names
+from dataset import CLASS_NAMES, SPLIT_SEED, get_data, load_page_names
 from modules import NodeClassifier, build_model
-from train import CHECKPOINTS, RESULTS
+from train import CHECKPOINTS, FINAL_SEEDS, RESULTS
 
 ECE_LIMIT = 0.03  # AC2
 COVERAGE_TARGET = 0.80  # AC3
@@ -54,17 +53,25 @@ LOW_DEGREE = 2  # a page with this many links or fewer has little graph signal
 SAFETY_TARGET = 0.98  # Section 7.8: AC3 rule with a 1-point safety margin
 
 
-def load_model(path: str, data: Data) -> NodeClassifier:
+def load_model(path: str, data: Data, seed: int) -> NodeClassifier:
     """Rebuild a model from a checkpoint written by ``train.py final``.
 
     Args:
         path: Checkpoint path.
         data: Graph, used for the input and output sizes.
+        seed: Model seed the checkpoint must have been trained with.
 
     Returns:
         The model in evaluation mode.
+
+    Raises:
+        ValueError: If the checkpoint was trained with a different seed or split.
     """
     ckpt = torch.load(path, weights_only=True)
+    if ckpt["seed"] != seed:
+        raise ValueError(f"{path} was trained with seed {ckpt['seed']}, expected {seed}")
+    if "split_seed" in ckpt and ckpt["split_seed"] != SPLIT_SEED:
+        raise ValueError(f"{path} was trained on split {ckpt['split_seed']}, not {SPLIT_SEED}")
     cfg = ckpt["config"]
     model = build_model(
         cfg["model"],
@@ -369,10 +376,11 @@ def main() -> None:
     report, embeddings = {}, {}
     probs_by_model: dict[str, list[torch.Tensor]] = {"gcn": [], "mlp": []}
     for model_name in ("gcn", "mlp"):
-        paths = sorted(glob.glob(os.path.join(CHECKPOINTS, f"{model_name}_seed*.pt")))
+        # Same seed order for both models, so GCN and MLP runs pair by seed.
         runs = []
-        for i, path in enumerate(paths):
-            model = load_model(path, data)
+        for i, seed in enumerate(FINAL_SEEDS):
+            path = os.path.join(CHECKPOINTS, f"{model_name}_seed{seed}.pt")
+            model = load_model(path, data, seed)
             logits, h = forward(model, data)
             metrics, probs = score_seed(logits, data)
             runs.append(metrics)

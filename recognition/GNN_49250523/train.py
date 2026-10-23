@@ -27,7 +27,7 @@ import torch.nn.functional as F
 from sklearn.metrics import f1_score
 from torch_geometric.data import Data
 
-from dataset import augment, get_data
+from dataset import SPLIT_SEED, augment, get_data
 from modules import NodeClassifier, build_model
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -321,7 +321,15 @@ def final(data: Data, safe: Data) -> None:
             net, hist = train_one(safe, cfg, seed)
             test_loss, test_f1 = evaluate(net, data, data.test_mask)
             path = os.path.join(CHECKPOINTS, f"{model}_seed{seed}.pt")
-            torch.save({"config": asdict(cfg), "seed": seed, "state_dict": net.state_dict()}, path)
+            torch.save(
+                {
+                    "config": asdict(cfg),
+                    "seed": seed,
+                    "split_seed": SPLIT_SEED,
+                    "state_dict": net.state_dict(),
+                },
+                path,
+            )
             runs.append({**hist, "test_loss": test_loss, "test_f1": test_f1})
             print(f"{model} seed {seed}: test F1 {test_f1:.4f}, best epoch {hist['best_epoch']}")
         f1s = torch.tensor([r["test_f1"] for r in runs])
