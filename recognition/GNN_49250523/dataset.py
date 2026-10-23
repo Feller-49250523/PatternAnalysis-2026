@@ -32,8 +32,9 @@ DEFAULT_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 CLASS_NAMES = ["company", "government", "politician", "tvshow"]
 
 # Fixed before any final result was seen. The feasibility smoke test used seed 42
-# and its test scores informed the design, so the final study uses a fresh split
-# whose test nodes have never been evaluated.
+# and its test scores informed the design, so the final study uses a fresh split.
+# By chance, 491 of its 3,371 test nodes were also smoke-test test nodes (only
+# aggregate scores were seen for those), so the new test set is not fully unseen.
 SPLIT_SEED = 3710
 
 SPLITS = ("train", "val", "test")
@@ -74,8 +75,9 @@ def load_facebook(root: str = DEFAULT_ROOT) -> Data:
         twice = 358 entries). GCNConv adds its own self-loops when it runs.
       * Edges are made undirected and duplicate pairs are merged
         (``to_undirected`` also coalesces), giving 170,823 undirected edges.
-      * Features are the 128-dim SVD vectors as given. They are already dense and
-        centred, so no further scaling is applied.
+      * Features are the 128-dim SVD vectors as given, with no further scaling.
+        They are dense but not centred (column means -0.04 to 0.76); scaling was
+        not part of the tuning grid.
 
     Args:
         root: Directory that holds the dataset file.

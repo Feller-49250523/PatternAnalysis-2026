@@ -139,7 +139,7 @@ No isolated nodes and no NaNs. Median degree 7, maximum 709. Class counts 6,495 
 | `np.load(..., allow_pickle=False)` | A pickled array can run code when loaded. Only numeric arrays are read. |
 | Remove 179 self-loops (358 entries) | A page liking itself is not a relation. GCNConv adds its own self-loop in a controlled way. |
 | `to_undirected` (also merges duplicates) | Links are mutual likes; both directions must exist. Result: 170,823 undirected edges. |
-| No feature scaling | The SVD features are already dense and centred. |
+| No feature scaling | The SVD features are used as given. They are dense but not centred (column means range from −0.04 to 0.76). Scaling was not tuned; any scaling experiment would have to be chosen on validation. |
 | Check for NaNs and size mismatches | Raises `ValueError` instead of training on bad data. |
 
 **Labels:** the dataset README's label order matches page types for only 31 % of pages. Alphabetical order (0 company, 1 government, 2 politician, 3 tvshow) matches 100 %.
