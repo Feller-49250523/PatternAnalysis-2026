@@ -158,7 +158,7 @@ A training page and a test page can be neighbours. The test page's features then
 
 - **Stratified**, so every split has the same class ratios (TV show 14.8 % in each). A random split without stratification would vary by about ±21 TV-show pages in the test set by chance.
 - **Shuffled with a fixed split seed**, so the split does not depend on the file order and is the same in every script and every run. `train.py` and `predict.py` each rebuild the split; a fixed seed makes sure they agree.
-- **Fresh split seed (3710).** The smoke test used seed 42 and its test scores informed the design, so the final study uses a new split, fixed before any final result was seen. By chance, 491 of the 3,371 new test pages were also in the old test set; only aggregate scores were seen for those.
+- **Fresh split seed (3710).** The smoke test used seed 42 and its test scores informed the design, so the final study uses a new split, fixed before any final result was seen. By chance, 491 of the 3,371 new test pages were also in the old test set (two independent 15 % draws would share about 0.15 × 3,371 ≈ 506); only aggregate scores were seen for those.
 - **Split seed ≠ model seed.** The split seed decides *which pages* are in each split and stays fixed. Model seeds decide the start weights, dropout and DropEdge patterns, and change between runs.
 
 ### 3.4 Augmentation
@@ -292,7 +292,20 @@ Two kinds of seed are used (Section 3.3). The **split seed** (3710) is fixed and
 
 Each table row is one setting. **Validation macro-F1: mean** is the average of its 3 runs (model seeds 0, 1, 2); **std** is the standard deviation of those 3 runs, i.e. how much the score changes with the seed. Each version has one table per model, because the best setting is chosen separately for each model. Within a table, rank 1 is the highest mean; the chosen setting is in **bold**.
 
+**Summary: best v2 setting for each depth** (the full tables follow, collapsed):
+
+| Model | Layers | Dropout | DropEdge *p* | Learning rate | Validation macro-F1 (mean ± std, seeds 0–2) | Best epoch of each seed | Rank in its grid |
+|---|---|---|---|---|---|---|---|
+| **GCN (chosen)** | **4** | **0.5** | **0** | **0.01** | **0.9517 ± 0.0007** | 311, 363, 314 | 1 of 32 |
+| GCN | 8 | 0.5 | 0 | 0.005 | 0.9510 ± 0.0018 | 371, 390, 311 | 2 of 32 |
+| GCN | 3 | 0.5 | 0 | 0.01 | 0.9470 ± 0.0019 | 474, 317, 467 | 9 of 32 |
+| GCN | 2 | 0.5 | 0 | 0.005 | 0.9271 ± 0.0011 | 809, 806, 885 | 25 of 32 |
+| **MLP (chosen)** | **2** | **0.5** | – | **0.01** | **0.7852 ± 0.0008** | 458, 373, 319 | 1 of 4 |
+
 **v1 (22 Oct, superseded).** 24 GCN + 4 MLP settings × 3 seeds = 84 runs. Each run trained for at most 200 epochs ([K]), keeping the epoch with the lowest validation loss. Full results: [`results/tuning_v1.json`](results/tuning_v1.json), [`results/tuning_v1.log`](results/tuning_v1.log).
+
+<details>
+<summary>v1 tables: 24 GCN and 4 MLP settings (superseded)</summary>
 
 **v1 — GCN** (24 settings)
 
@@ -332,6 +345,8 @@ Each table row is one setting. **Validation macro-F1: mean** is the average of i
 | 3 | 0.5 | 0.005 | 0.7676 | 0.0026 |
 | 4 | 0.8 | 0.005 | 0.7620 | 0.0007 |
 
+</details>
+
 Two problems led to v2:
 
 1. **The epoch limit cut training short.** Almost every run had its best epoch between 185 and 200, so validation loss was still falling at the limit. This also favoured settings that learn fast (learning rate 0.01, dropout 0.5). Fix: [S]'s early stopping (patience 50, max 100,000 epochs, Section 5.1).
@@ -340,6 +355,9 @@ Two problems led to v2:
 These changes were based on validation results only; test labels stayed hidden (Section 6).
 
 **v2 (22 Oct, final).** 32 GCN + 4 MLP settings × 3 seeds = 108 runs, with early stopping. Total 136 min on the M4 CPU. Full results: [`results/tuning.json`](results/tuning.json), [`results/tuning_v2.log`](results/tuning_v2.log).
+
+<details>
+<summary>v2 tables: 32 GCN and 4 MLP settings (final)</summary>
 
 **v2 — GCN** (32 settings)
 
@@ -386,6 +404,8 @@ These changes were based on validation results only; test labels stayed hidden (
 | 2 | 0.5 | 0.005 | 0.7851 | 0.0030 | 490, 771, 513 |
 | 3 | 0.8 | 0.005 | 0.7730 | 0.0012 | 639, 613, 654 |
 | 4 | 0.8 | 0.01 | 0.7724 | 0.0022 | 370, 404, 226 |
+
+</details>
 
 What v2 shows:
 
