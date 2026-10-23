@@ -426,7 +426,7 @@ What v2 shows:
 | GCN | 4 | 0.5 | 0 | 0.01 | 0.952 ± 0.001 |
 | MLP | 2 | 0.5 | 0 | 0.01 | 0.785 ± 0.001 |
 
-The gap between GCN and MLP (+0.167 macro-F1) is the value the graph edges add. Tuning stops here: the next changes would be chosen after looking at these validation scores again, which adds more selection bias (Section 12).
+Most of the gap between GCN and MLP (+0.167 macro-F1) comes from the graph: GCN-2, which has the same size as the MLP (8,516 parameters), already scores 0.927 (+0.142); the extra depth of GCN-4 adds the rest. Tuning stops here: the next changes would be chosen after looking at these validation scores again, which adds more selection bias (Section 12).
 
 ---
 
@@ -464,7 +464,7 @@ The tuned setting of each model (Section 5.4) was trained with new seeds 3–7 a
 
 ### 7.2 Per-class metrics
 
-From `python predict.py` ([`results/predict.json`](results/predict.json)). Mean over seeds 3–7; standard deviations are ≤ 0.009.
+From `python predict.py` ([`results/predict.json`](results/predict.json)). Mean over seeds 3–7; standard deviations are ≤ 0.01 (the largest is GCN TV-show recall, 0.0095).
 
 | | Accuracy | Macro-F1 | AUROC (macro OvR) |
 |---|---|---|---|
@@ -497,7 +497,7 @@ Temperature *T* is fitted on validation logits by minimising the negative log-li
 
 | | *T* | Test ECE before | Test ECE after |
 |---|---|---|---|
-| GCN-4 | 1.02 ± 0.02 | 0.015 | 0.015 |
+| GCN-4 | 1.02 ± 0.02 | 0.014 | 0.015 |
 | MLP | 0.98 ± 0.01 | 0.036 | 0.034 |
 
 **AC2 passes** (0.015 ≤ 0.03). The GCN was already calibrated, so scaling changed almost nothing (*T* ≈ 1). A likely reason: early stopping keeps the weights with the lowest validation loss, and that loss is the same NLL that temperature scaling minimises. A check of seed 3 confirms that the validation NLL is lowest at *T* = 1.00.
@@ -540,7 +540,7 @@ Apple M4 CPU, no GPU (the spec asks for peak GPU VRAM; this study ran on CPU, so
 
 144 test pages are wrong for **all 5** GCN seeds, so these are stable failures, not bad luck ([`results/failures.csv`](results/failures.csv)). The most common error pairs: tvshow → company (27), company → tvshow (22), politician → government (22), company → government (20). 59 of the 144 have mean confidence ≥ 0.9.
 
-Five representative cases, one per trigger. "Own-class links" is the share of the page's neighbours that have the page's true class. "MLP" shows whether the model without the graph gets the page right; this separates errors caused by the graph from errors caused by the features.
+Five representative cases, one per trigger. "Own-class links" is the share of the page's neighbours that have the page's true class. "MLP" shows whether the model without the graph gets the page right; this suggests whether an error comes from the graph or from the page's own features.
 
 | # | Page | True → GCN | GCN conf. | Links | Own-class links | MLP (5 seeds) | Trigger |
 |---|---|---|---|---|---|---|---|
@@ -550,11 +550,11 @@ Five representative cases, one per trigger. "Own-class links" is the share of th
 | 4 | NASA | company → government | 1.00 | 328 | 6 % (289 are government) | government (wrong) | Arguable label |
 | 5 | The Muppets | tvshow → company | 0.65 | 22 | 32 % (Disney Store, Toys R Us …) | tvshow (right) | Caught by the reject rule |
 
-1. **Senado de la República** (a national senate). A senate's page is liked by its senators, so 32 of its 35 neighbours are politicians. Every layer mixes them in, and the GCN is fully confident in "politician". The MLP also says politician, so the page's own text is also politician-like. **Trigger:** the page is an institution made of people of another class. Many legislatures and parties fail the same way (politician ↔ government is the third-largest error pair).
+1. **Senado de la República** (a national senate). A senate's page is liked by its senators, so 32 of its 35 neighbours are politicians. Every layer mixes them in, and the GCN is fully confident in "politician". The MLP also says politician, so the page's own text is also politician-like. **Trigger:** the page is an institution made of people of another class. Many legislatures and parties fail the same way (politician ↔ government is the second-largest error pair in the confusion matrix, Section 7.2).
 
    ![Senado](results/neighbourhood_9762.png)
 
-2. **Chef's Table** (a Netflix series). Its only link is to San Pellegrino, a food-and-drink company with 11 links, 10 of them to companies. In one layer, Chef's Table keeps weight $1/\sqrt{2 \cdot 2} = 0.50$ on itself and gives $1/\sqrt{2 \cdot 12} = 0.20$ to San Pellegrino (formula in Section 1), so its own features still count most in a single layer. But all the graph context it receives over 4 layers comes through that one company page, which itself mixes in mostly company pages, and nothing in the graph points to TV show. The MLP, which ignores the edge, gets it right in 4 of 5 seeds. **Trigger:** low degree. **The graph caused this error.**
+2. **Chef's Table** (a Netflix series). Its only link is to San Pellegrino, a food-and-drink company with 11 links, 10 of them to companies. In one layer, Chef's Table keeps weight $1/\sqrt{2 \cdot 2} = 0.50$ on itself and gives $1/\sqrt{2 \cdot 12} = 0.20$ to San Pellegrino (formula in Section 1), so its own features still count most in a single layer. But all the graph context it receives over 4 layers comes through that one company page, which itself mixes in mostly company pages, and nothing in the graph points to TV show. The MLP, which ignores the edge, gets it right in 4 of 5 seeds. **Trigger:** low degree. **The graph most likely caused this error:** the feature-only MLP is right, and nothing in its neighbourhood points to TV show.
 
    ![Chef's Table](results/neighbourhood_4593.png)
 
@@ -570,8 +570,8 @@ Five representative cases, one per trigger. "Own-class links" is the share of th
 
    ![The Muppets](results/neighbourhood_7974.png)
 
-**What the five cases show.** In cases 1–4, the GCN is wrong with confidence 1.00, so no confidence threshold can catch them. Two causes stand out:
-- **The graph overrides good features** (cases 2 and 5): the MLP was right. A page whose GCN and MLP predictions disagree is a cheap signal for human review.
+**What the five cases show.** In cases 1–4, the GCN is wrong with mean confidence 0.999 or more (shown as 1.00 in the table). A threshold high enough to refer them would auto-label at most 27 % of validation pages (coverage at a 0.999 threshold), far below the 80 % target, so in practice the threshold rule cannot catch them. Two causes stand out:
+- **The graph appears to override good features** (cases 2 and 5): the MLP was right. A page whose GCN and MLP predictions disagree is a cheap signal for human review.
 - **The taxonomy does not fit the page** (cases 3 and 4): broadcasters and government agencies are labelled "company". No model change fixes this; the labelling guide must.
 
 ### 7.8 Recommendation to the triage team
@@ -581,7 +581,7 @@ Five representative cases, one per trigger. "Own-class links" is the share of th
 | Finding | Evidence | Action |
 |---|---|---|
 | The GCN is much better than the baseline | Macro-F1 0.945 vs 0.776; TV show recall 0.92 vs 0.56 | Use the GCN, not a feature-only model |
-| Its confidence is honest on average | ECE 0.015 without scaling | Confidence can drive the routing rule |
+| Its confidence is honest on average | ECE 0.014 without scaling | Confidence can drive the routing rule |
 | The 97 % rule auto-labels 95 % of pages, but at 96.3 % accuracy | Section 7.4 | Add a safety margin: choose the threshold for 98 % on validation (88.5 % validation coverage, table below), then confirm it on a new labelled batch before go-live. This changes the rule, so it must be tested on data not used here. |
 | Some errors are confident (59 of 144 stable errors at ≥ 0.9) | Section 7.7; table below | Optionally also send to a human any page where the GCN and the MLP disagree. Do **not** add the "≤ 2 links" rule: on validation it refers 20 % more pages for +0.3 accuracy points. |
 | Some "errors" are label problems | NASA, laSexta | Add guidance for broadcasters and government agencies, then re-audit those labels |
