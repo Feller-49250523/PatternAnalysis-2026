@@ -105,6 +105,10 @@ No isolated nodes and no NaNs. Median degree 7, maximum 709. Class counts 6,495 
 - **Over-smoothing** in deeper GCNs can blur class boundaries; depth is tuned and residual connections are used.
 - **Small gaps:** results are reported as mean ± standard deviation over 5 training seeds. TV show has the lowest F1 for every model; the failure analysis studies 3–5 such pages.
 - **Budget:** each run takes seconds to minutes on a laptop CPU, so no cluster is needed.
+- **Next experiment:** GCN, GAT and GIN over 5 seeds at 2/3/4 layers, then temperature scaling, a reliability diagram, a validation-chosen threshold and a t-SNE plot of the embeddings.
+- **Fallback:** the 2-layer GCN already passes AC1. If GAT or GIN don't beat it clearly over 5 seeds, I'll keep the GCN as the cheapest model and focus on calibration and the reject-option analysis.
+
+The two bullets above are as checked off on 22 Oct. What happened next: the scope was narrowed to GCN vs MLP before the 5-seed GAT and GIN runs were done (see the revisions below), with the same outcome as the fallback: the GCN was kept (tuned to 4 layers) and the work focused on calibration and the reject option (Sections 7.3–7.4).
 
 ### Revisions since the check-off
 
