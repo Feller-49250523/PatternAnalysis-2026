@@ -24,7 +24,13 @@ import networkx as nx
 import numpy as np
 import torch
 from sklearn.manifold import TSNE
-from sklearn.metrics import accuracy_score, f1_score, precision_recall_fscore_support, roc_auc_score
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    f1_score,
+    precision_recall_fscore_support,
+    roc_auc_score,
+)
 from torch_geometric.data import Data
 from torch_geometric.utils import degree
 
@@ -45,6 +51,7 @@ COVERAGE_TARGET = 0.80  # AC3
 LATENCY_REPEATS = 20
 CONFIDENT = 0.9  # a wrong page at or above this confidence is "confidently wrong"
 LOW_DEGREE = 2  # a page with this many links or fewer has little graph signal
+SAFETY_TARGET = 0.98  # Section 7.8: AC3 rule with a 1-point safety margin
 
 
 def load_model(path: str, data: Data) -> NodeClassifier:
@@ -106,6 +113,7 @@ def score_seed(logits: torch.Tensor, data: Data) -> tuple[dict, torch.Tensor]:
         "temperature": temperature,
         "ece_before": ece(probs_raw[test], data.y[test]),
         "ece_after": ece(probs[test], data.y[test]),
+        "confusion": confusion_matrix(y, pred, labels=range(len(CLASS_NAMES))).tolist(),
     }
     if threshold is None:
         metrics["reject"] = None
@@ -146,7 +154,65 @@ def summarise(runs: list[dict]) -> dict:
             [r["coverage_per_class"] for r in rejects], axis=0
         ).tolist()
     out["seeds_without_threshold"] = len(runs) - len(rejects)
+    out["confusion_sum"] = np.sum([r["confusion"] for r in runs], axis=0).tolist()
     return out
+
+
+def routing_on_validation(
+    data: Data, gcn_probs: list[torch.Tensor], mlp_probs: list[torch.Tensor]
+) -> dict:
+    """Score the extra routing rules of Section 7.8 on the validation split only.
+
+    The rules were proposed after reading test failures, so they are checked on
+    validation, never on test. For each final seed, a policy decides which
+    validation pages the GCN auto-labels; the rest go to a human.
+
+    * ``threshold_97``: the AC3 rule (confidence at or above the 97 % threshold).
+    * ``+disagree``: also refer pages where the GCN and the MLP predict differently.
+    * ``+low_degree``: also refer pages with ``LOW_DEGREE`` links or fewer.
+    * ``threshold_98``: the AC3 rule with a ``SAFETY_TARGET`` accuracy target.
+
+    Args:
+        data: Graph with real labels and split masks.
+        gcn_probs: Calibrated GCN probabilities of every node, one tensor per seed.
+        mlp_probs: Calibrated MLP probabilities, same seed order as ``gcn_probs``.
+
+    Returns:
+        For each policy, the mean over seeds of validation coverage, accuracy of
+        the auto-labelled pages, and number of auto-labelled errors.
+    """
+    val = data.val_mask
+    y = data.y[val]
+    low = degree(data.edge_index[0], data.num_nodes)[val] <= LOW_DEGREE
+    results: dict[str, list[tuple[float, float, int]]] = {}
+    for g_all, m_all in zip(gcn_probs, mlp_probs, strict=True):
+        g, m = g_all[val], m_all[val]
+        conf, pred = g.max(1)
+        disagree = pred != m.argmax(1)
+        t97, t98 = choose_threshold(g, y), choose_threshold(g, y, SAFETY_TARGET)
+        if t97 is None or t98 is None:
+            continue
+        base = conf >= t97
+        policies = {
+            "threshold_97": base,
+            "threshold_97+disagree": base & ~disagree,
+            "threshold_97+low_degree": base & ~low,
+            "threshold_97+disagree+low_degree": base & ~disagree & ~low,
+            "threshold_98": conf >= t98,
+        }
+        for name, keep in policies.items():
+            wrong = int((pred[keep] != y[keep]).sum())
+            accuracy = 1 - wrong / max(int(keep.sum()), 1)
+            results.setdefault(name, []).append((keep.float().mean().item(), accuracy, wrong))
+    return {
+        name: {
+            "coverage": float(np.mean([r[0] for r in rows])),
+            "accuracy": float(np.mean([r[1] for r in rows])),
+            "errors_auto_labelled": float(np.mean([r[2] for r in rows])),
+            "seeds": len(rows),
+        }
+        for name, rows in results.items()
+    }
 
 
 def plot_reliability(before: torch.Tensor, after: torch.Tensor, y: torch.Tensor, path: str) -> None:
@@ -300,7 +366,8 @@ def main() -> None:
     plt.switch_backend("Agg")
     data = get_data()
     test = data.test_mask
-    report, gcn_probs, embeddings = {}, [], {}
+    report, embeddings = {}, {}
+    probs_by_model: dict[str, list[torch.Tensor]] = {"gcn": [], "mlp": []}
     for model_name in ("gcn", "mlp"):
         paths = sorted(glob.glob(os.path.join(CHECKPOINTS, f"{model_name}_seed*.pt")))
         runs = []
@@ -309,8 +376,7 @@ def main() -> None:
             logits, h = forward(model, data)
             metrics, probs = score_seed(logits, data)
             runs.append(metrics)
-            if model_name == "gcn":
-                gcn_probs.append(probs)
+            probs_by_model[model_name].append(probs)
             if i == 0:  # figures and latency use the first final seed
                 embeddings[model_name] = h[test]
                 report[f"{model_name}_latency_seconds"] = latency(model, data)
@@ -334,10 +400,14 @@ def main() -> None:
         ),
         "AC5_latency": bool(report["gcn_latency_seconds"] <= 1.0),
     }
+    report["routing_validation"] = routing_on_validation(
+        data, probs_by_model["gcn"], probs_by_model["mlp"]
+    )
     with open(os.path.join(RESULTS, "predict.json"), "w") as f:
         json.dump(report, f, indent=2)
 
     plot_tsne(embeddings, data.y[test], os.path.join(RESULTS, "tsne.png"))
+    gcn_probs = probs_by_model["gcn"]
     n = failure_candidates(data, gcn_probs, os.path.join(RESULTS, "failures.csv"))
     mean_pred = torch.stack(gcn_probs).mean(0).argmax(1)
     for node in args.nodes:
@@ -355,6 +425,8 @@ def main() -> None:
     print(f"latency: gcn {report['gcn_latency_seconds'] * 1000:.1f} ms")
     print(f"acceptance: {report['acceptance']}")
     print(f"failure candidates (GCN wrong for every seed): {n}")
+    for name, r in report["routing_validation"].items():
+        print(f"validation {name}: coverage {r['coverage']:.3f}, accuracy {r['accuracy']:.4f}")
 
 
 if __name__ == "__main__":
