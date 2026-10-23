@@ -605,17 +605,29 @@ Five representative cases, one per trigger. "Own-class links" is the share of th
 
 ## 8. Usage
 
-```bash
-pip install torch==2.14.1 torch_geometric==2.8.1 scikit-learn==1.9.1 matplotlib==3.11.2
+**Setup** (from the repository root; Python 3.12):
 
-python dataset.py        # download, verify and audit the data
-python train.py tune     # grid search on validation (writes results/tuning.json)
-python train.py final    # 5-seed final runs, test scores, checkpoints, curves
-python predict.py        # test metrics, calibration, reject rule, t-SNE, latency, failures
-python predict.py --nodes 9762 4593   # also draw the 2-hop neighbourhood of these pages
+```bash
+cd recognition/GNN_49250523
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-Example output of `python dataset.py`:
+`requirements.txt` pins every package used, including NumPy, SciPy and NetworkX (used by `predict.py` for the neighbourhood plots).
+
+**Run** (in this order; each step needs the output of the one before):
+
+| Command | What it does | Time (M4 CPU) | Needs |
+|---|---|---|---|
+| `python dataset.py` | Download `facebook.npz` (checksum-verified), audit it, print the split | seconds | internet, first run only |
+| `python train.py tune` | Grid search on validation; writes `results/tuning.json` | ~136 min | – (**optional**: `results/tuning.json` is committed) |
+| `python train.py final \| tee results/final.log` | Retrain the chosen settings with seeds 3–7, score test, save `checkpoints/`, plot curves | ~5 min | `results/tuning.json` |
+| `python predict.py` | Test metrics, calibration, reject rule, routing check, t-SNE, latency, failure list | ~15 s | `checkpoints/` |
+| `python predict.py --nodes 9762 4593` | Also draw the 2-hop neighbourhood of these pages | ~15 s | `checkpoints/` |
+
+`train.py final` and `predict.py` **overwrite** the committed files in `results/`. A fresh run on the setup above reproduced every reported metric exactly; only timings differ slightly.
+
+Example output of `python dataset.py` (after a `Downloading …` line on the first run):
 
 ```
            nodes: 22470
@@ -629,13 +641,26 @@ undirected_edges: 170823
      split_sizes: {'train': 15729, 'val': 3370, 'test': 3371}
 ```
 
-Optional: put the MUSAE `facebook_target.csv` in `data/` to show page names in the failure analysis.
+Example lines from `python predict.py`:
+
+```
+gcn: F1 0.9448, ECE 0.0145 -> 0.0148, coverage 0.953 at accuracy 0.963
+mlp: F1 0.7764, ECE 0.0357 -> 0.0341, coverage 0.444 at accuracy 0.957
+acceptance: {'AC2_ece': True, 'AC3_reject': False, 'AC5_latency': True}
+failure candidates (GCN wrong for every seed): 144
+```
+
+**Known messages.**
+- Every script prints `FutureWarning: torch.jit.script is deprecated` from inside PyTorch/PyG. It is harmless.
+- On the python.org macOS installer, the download can fail with `SSL: CERTIFICATE_VERIFY_FAILED`. Run `/Applications/Python 3.12/Install Certificates.command` once, or `export SSL_CERT_FILE=$(python -m certifi)`.
+
+**Page names (optional).** Download `facebook_target.csv` from the MUSAE repository ([`input/target/facebook_target.csv`](https://github.com/benedekrozemberczki/MUSAE/tree/master/input/target)) into `data/`. Without it, the `page_name` column of `results/failures.csv` and the neighbourhood plot titles are blank; nothing else changes.
 
 ---
 
 ## 9. Dependencies
 
-Tested on macOS 27.0.1, Apple M4, CPU only.
+Tested on macOS 27.0.1, Apple M4, CPU only. Installed by `pip install -r requirements.txt`.
 
 | Package | Version |
 |---|---|
@@ -646,7 +671,8 @@ Tested on macOS 27.0.1, Apple M4, CPU only.
 | NumPy | 2.5.4 |
 | SciPy | 1.18.1 |
 | Matplotlib | 3.11.2 |
-| Ruff (style check) | 0.14.0 |
+| NetworkX | 3.7 |
+| Ruff (style check only) | 0.14.0 |
 
 ---
 
@@ -660,6 +686,7 @@ GNN_49250523/
 ├── calibrate.py    temperature scaling, ECE, threshold choice, reject report
 ├── predict.py      loads checkpoints; test metrics, calibration, reject rule, figures, failures
 ├── results/        tuning and final results (JSON, logs, plots)
+├── requirements.txt  exact package versions
 └── pyproject.toml  Ruff configuration
 ```
 
