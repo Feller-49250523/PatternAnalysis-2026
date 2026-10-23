@@ -558,10 +558,24 @@ Five representative cases, one per trigger. "Own-class links" is the share of th
 |---|---|---|
 | The GCN is much better than the baseline | Macro-F1 0.945 vs 0.776; TV show recall 0.92 vs 0.56 | Use the GCN, not a feature-only model |
 | Its confidence is honest on average | ECE 0.015 without scaling | Confidence can drive the routing rule |
-| The 97 % rule auto-labels 95 % of pages, but at 96.3 % accuracy | Section 7.4 | Add a safety margin: choose the threshold for 98 % on validation, then confirm it on a new labelled batch before go-live. This changes the rule, so it must be tested on data not used here. |
-| Some errors are confident (59 of 144 stable errors at ≥ 0.9) | Section 7.7 | Also send to a human any page where the GCN and the MLP disagree, and any page with ≤ 2 links. Both rules are untested proposals. |
+| The 97 % rule auto-labels 95 % of pages, but at 96.3 % accuracy | Section 7.4 | Add a safety margin: choose the threshold for 98 % on validation (88.5 % validation coverage, table below), then confirm it on a new labelled batch before go-live. This changes the rule, so it must be tested on data not used here. |
+| Some errors are confident (59 of 144 stable errors at ≥ 0.9) | Section 7.7; table below | Optionally also send to a human any page where the GCN and the MLP disagree. Do **not** add the "≤ 2 links" rule: on validation it refers 20 % more pages for +0.3 accuracy points. |
 | Some "errors" are label problems | NASA, laSexta | Add guidance for broadcasters and government agencies, then re-audit those labels |
 | It is cheap | 61 ms for the whole graph, 0.87 GB, 53 s to retrain | Retraining on a schedule is practical on a laptop CPU |
+
+**Extra routing rules, checked on validation only.** The rules below were proposed after reading the test failures (Section 7.7), so they are scored on the validation split, not on test (`routing_validation` in [`results/predict.json`](results/predict.json); mean over seeds 3–7; 3,370 validation pages).
+
+| Policy (pages not auto-labelled go to a human) | Validation coverage | Validation accuracy of auto-labels | Auto-labelled errors |
+|---|---|---|---|
+| AC3 rule (97 % threshold) | 94.9 % | 97.0 % | 95.6 |
+| 97 % threshold + refer GCN/MLP disagreements | 78.5 % | 98.4 % | 42.6 |
+| 97 % threshold + refer pages with ≤ 2 links | 74.5 % | 97.3 % | 68.2 |
+| 97 % threshold + both rules | 62.1 % | 98.7 % | 27.4 |
+| 98 % threshold | 88.5 % | 98.0 % | 59.4 |
+
+- **The 98 % threshold is the cheapest fix.** It refers 6.4 % more pages and removes about 36 of the 96 auto-labelled errors. Its 98.0 % is in-sample, because the threshold was fitted to reach 98 % on this split; the 97 % rule lost 0.7 points from validation to test (Section 7.4), so a similar drop is likely.
+- **Disagreement catches more errors, at a higher cost.** It removes about 53 errors but refers 16.4 % more pages, taking coverage below the 80 % target of AC3. This rule has no fitted value, so its validation numbers are a fairer estimate than the 98 % threshold's.
+- **The ≤ 2 links rule is a poor trade.** About a fifth of validation pages have 2 or fewer links, and most of them are classified correctly: it refers 20.4 % more pages to remove only 27 errors. Few links explains some failures (Chef's Table), but most low-degree pages are fine.
 
 ---
 
@@ -658,7 +672,7 @@ GNN_49250523/
 - **Validation reuse.** The validation set guided early stopping, the grid, the v1 → v2 change, the temperature and the threshold, so validation scores are slightly optimistic. The test set was used for none of these.
 - **Threshold with no margin.** The AC3 rule was fixed before the results and met its accuracy target exactly on validation, so it fell short on test (Section 7.4).
 - **No GPU.** Memory is CPU process memory, not GPU VRAM.
-- **Untested proposals.** The extra routing rules in Section 7.8 were suggested after looking at test failures and have not been evaluated.
+- **Rules proposed after seeing test failures.** The extra routing rules in Section 7.8 were suggested after reading the test failures. They are scored on validation only, and none was adopted into the AC3 result; they still need confirming on new labelled data.
 - **Method of a source.** Rong et al. selected their reported settings by best *test* accuracy. Only their values are used here, not their selection method.
 
 ---
