@@ -630,17 +630,16 @@ These conclusions rest on one data split and five seeds; Section 12 lists the li
 
 ### 7.9 Recommendation to the triage team
 
-**Advance the GCN to a supervised pilot, not to unsupervised auto-labelling.**
+**Deploy the GCN as a triage assistant with human review, not as a fully automatic labeller.**
 
-| Finding | Evidence | Action |
-|---|---|---|
-| The GCN is much better than the baseline | Macro-F1 0.945 vs 0.776; TV show recall 0.92 vs 0.56 | Use the GCN, not a feature-only model |
-| Its confidence is honest on average | ECE 0.014 without scaling | Confidence can drive the routing rule |
-| The 97 % target was a starting point, and it fell 0.7 points short on test | Section 7.4; operating points below | Let the client choose the threshold from the operating points below, based on review capacity and the cost of a wrong label; confirm the chosen point on a new labelled batch before go-live |
-| Some errors are confident (59 of 144 stable errors at ≥ 0.9) | Section 7.7; table below | Optionally also send to a human any page where the GCN and the MLP disagree. Do **not** add the "≤ 2 links" rule: on validation it refers 20 % more pages for +0.3 accuracy points. |
-| Some "errors" are label problems | NASA, laSexta | Add guidance for broadcasters and government agencies, then re-audit those labels |
-| The model sees only two kinds of information | Each page has only its description features and its links | If the client can provide more page data (images, posts, page activity), test whether it reduces the remaining errors; see below |
-| It is cheap | 58 ms for the whole graph, 0.87 GB, 53 s to retrain | Retraining on a schedule is practical on a laptop CPU |
+1. **Use the GCN, not a description-only model.** It is far more accurate, especially on TV shows (Sections 7.1–7.2).
+2. **Route pages by confidence.** Auto-label a page when its confidence reaches the threshold; send the rest to a person. The scores are honest enough to drive this rule (Section 7.3).
+3. **Choose the threshold with the client from the operating points below,** based on how many pages their team can review and how costly a wrong label is. Confirm the chosen point on a fresh labelled batch before go-live, because every point loses a little accuracy on new data.
+4. **Optionally, also send a person every page where the GCN and the MLP disagree.** It catches more errors but sends more pages to review. Do **not** add a "2 links or fewer" rule: it costs many reviews for little gain (table below).
+5. **Fix the labelling guidance before blaming the model.** Decide where broadcasters and government agencies belong, then re-check those labels (laSexta, NASA; Section 7.7).
+6. **Check a random sample of auto-labelled pages regularly** to measure the real error rate on new pages and catch drift.
+7. **Test extra page data if the client can provide it** (images, posts, activity; see below).
+8. **Retrain on a schedule.** It takes 53 s on a laptop CPU, so keeping the model current is cheap (Section 7.6).
 
 **Operating points for the client.** Each threshold below is chosen on validation with the AC3 rule for a different accuracy target, frozen, and then applied once to test (`operating_points` in [`results/predict.json`](results/predict.json); mean over seeds 3–7; 3,371 test pages). Nothing is chosen on test.
 
