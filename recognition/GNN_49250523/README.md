@@ -447,12 +447,25 @@ From `python predict.py` ([`results/predict.json`](results/predict.json)). Mean 
 | GCN-4 | 0.948 | 0.945 | 0.990 |
 | MLP | 0.798 | 0.776 | 0.946 |
 
-| Precision / recall | company | government | politician | tvshow |
+| | company | government | politician | tvshow |
 |---|---|---|---|---|
-| GCN-4 | 0.949 / 0.943 | 0.948 / 0.957 | 0.963 / 0.962 | 0.922 / 0.917 |
-| MLP | 0.829 / 0.848 | 0.802 / 0.844 | 0.777 / 0.825 | 0.759 / **0.560** |
+| GCN-4 precision / recall | 0.949 / 0.943 | 0.948 / 0.957 | 0.963 / 0.962 | 0.922 / 0.917 |
+| GCN-4 F1 | 0.946 | 0.952 | 0.962 | 0.919 |
+| MLP precision / recall | 0.829 / 0.848 | 0.802 / 0.844 | 0.777 / 0.825 | 0.759 / **0.560** |
+| MLP F1 | 0.838 | 0.823 | 0.800 | **0.645** |
 
-TV show, the minority class (15 %), is the weakest class for both models. The graph helps it the most: recall rises from 0.56 to 0.92.
+F1 is computed per seed, then averaged. TV show, the minority class (15 %), is the weakest class for both models. The graph helps it the most: recall rises from 0.56 to 0.92, and F1 from 0.645 to 0.919.
+
+**Confusion matrix** (GCN-4, test pages per seed, mean over seeds 3–7; rows are the true class, columns the prediction):
+
+| True ↓ / predicted → | company | government | politician | tvshow | Pages |
+|---|---|---|---|---|---|
+| company | **919.0** | 24.2 | 3.8 | 28.0 | 975 |
+| government | 14.6 | **987.4** | 24.8 | 5.2 | 1,032 |
+| politician | 1.8 | 25.6 | **831.8** | 5.8 | 865 |
+| tvshow | 33.4 | 4.6 | 3.4 | **457.6** | 499 |
+
+Most errors fall into three pairs: company ↔ tvshow (61 pages per seed), government ↔ politician (50) and company ↔ government (39). The other confusions are small (for example politician → company, 1.8). The first two are the overlaps seen in the t-SNE plot (Section 7.5), and all three are among the main error pairs in the failure analysis (Section 7.7). For the MLP, the largest cell is tvshow → company (115 per seed), the source of its 0.56 TV-show recall. Full matrices: `confusion_sum` in [`results/predict.json`](results/predict.json).
 
 ### 7.3 Calibration (AC2)
 
@@ -494,10 +507,10 @@ Apple M4 CPU, no GPU (the spec asks for peak GPU VRAM; this study ran on CPU, so
 
 | | Parameters | Train time / run | Best epoch | Peak memory | Full-graph inference |
 |---|---|---|---|---|---|
-| GCN-4 | 16,836 | 53 s | 185–351 | 0.87 GB | 59 ms |
-| MLP | 8,516 | 4 s | 350–556 | (same process) | 1.2 ms |
+| GCN-4 | 16,836 | 53 s | 185–351 | 0.87 GB | 61 ms |
+| MLP | 8,516 | 4 s | 350–556 | (same process) | 1.3 ms |
 
-**AC5 passes** (limits: 10 min, 4 GB, 1 s). Inference is the median of 20 full-graph forward passes, for all 22,470 pages at once. The GCN costs 50× the MLP's latency, but 59 ms for the whole graph is still small.
+**AC5 passes** (limits: 10 min, 4 GB, 1 s). Inference is the median of 20 full-graph forward passes, for all 22,470 pages at once. The GCN costs about 46× the MLP's latency, but 61 ms for the whole graph is still small.
 
 ### 7.7 Failure analysis
 
@@ -548,7 +561,7 @@ Five representative cases, one per trigger. "Own-class links" is the share of th
 | The 97 % rule auto-labels 95 % of pages, but at 96.3 % accuracy | Section 7.4 | Add a safety margin: choose the threshold for 98 % on validation, then confirm it on a new labelled batch before go-live. This changes the rule, so it must be tested on data not used here. |
 | Some errors are confident (59 of 144 stable errors at ≥ 0.9) | Section 7.7 | Also send to a human any page where the GCN and the MLP disagree, and any page with ≤ 2 links. Both rules are untested proposals. |
 | Some "errors" are label problems | NASA, laSexta | Add guidance for broadcasters and government agencies, then re-audit those labels |
-| It is cheap | 59 ms for the whole graph, 0.87 GB, 53 s to retrain | Retraining on a schedule is practical on a laptop CPU |
+| It is cheap | 61 ms for the whole graph, 0.87 GB, 53 s to retrain | Retraining on a schedule is practical on a laptop CPU |
 
 ---
 
