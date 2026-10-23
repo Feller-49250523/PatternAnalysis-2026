@@ -82,9 +82,18 @@ This review was checked off by the tutor on 22 Oct 2026. The version below has t
 | AC4 | No leakage: train/validation/test masks are disjoint; only training labels enter the loss; every model, calibration and threshold choice uses validation results. |
 | AC5 | Resources: one full training ≤ 10 min and peak memory ≤ 4 GB on a laptop CPU; full-graph inference ≤ 1 s. |
 
+**Terms used throughout.**
+- **Macro-F1:** the F1 score (harmonic mean of precision and recall) computed for each class, then averaged with equal weight, so the minority class (TV show) counts as much as the others.
+- **AUROC (macro OvR):** area under the ROC curve for each class against the rest ("one-vs-rest"), averaged over classes; 1.0 is perfect ranking, 0.5 is chance.
+- **Confidence:** the highest predicted class probability. **Coverage:** the share of pages auto-labelled (confidence at or above the threshold).
+- **ECE (expected calibration error), top-label:** group pages into 15 confidence bins; in each bin, compare the mean confidence with the accuracy; average the gaps, weighted by bin size. "Top-label" means only the predicted class's probability is used. 0 means confidence matches accuracy exactly.
+- **Temperature scaling:** divide all logits by one number *T* before softmax, with *T* fitted on validation by minimising the **NLL** (negative log-likelihood, the cross-entropy of the true labels). It changes confidence but never the predicted class.
+- **SVD features:** the 128 numbers per page from a singular value decomposition of the page descriptions' word counts, supplied with the dataset (MUSAE: the original release by Rozemberczki et al., 2021).
+- **Over-smoothing:** with many GCN layers, every page's representation is mixed with so many others that pages of different classes become alike.
+
 ### 2.2 Model choice and course concepts
 
-**Data:** the course-specified release (`gayanku/facebook_page-page_dataset`, `facebook.npz`): 22,470 pages, 170,823 undirected mutual-like edges after removing 179 self-loops, 4 classes, 128-dimensional SVD features. **Setting:** transductive semi-supervised classification on a stratified, seeded 70/15/15 node split. All features and edges are visible during message passing; only training labels are used for learning. **Model:** a multi-layer GCN with dropout and residual connections. **Baseline:** a 2-layer MLP on the same features with no graph. **Course link:** GCN layers are a first-order approximation of spectral graph filters, i.e. the Fourier and convolution ideas from the course applied to a graph Laplacian. Connected pages share a label on 88.5 % of edges, which supports neighbour averaging. Calibration uses temperature scaling (Guo et al., 2017).
+**Data:** the course-specified release (`gayanku/facebook_page-page_dataset`, `facebook.npz`): 22,470 pages, 170,823 undirected mutual-like edges after removing 179 self-loops, 4 classes, 128-dimensional SVD features. **Setting:** transductive semi-supervised classification on a stratified, seeded 70/15/15 node split. All features and edges are visible during message passing; only training labels are used for learning. **Model:** a multi-layer GCN with dropout and residual connections (spec Section 2.1, "Multi-layer GNN", **Normal difficulty**). **Baseline:** a 2-layer MLP on the same features with no graph. **Course link:** GCN layers are a first-order approximation of spectral graph filters, i.e. the Fourier and convolution ideas from the course applied to a graph Laplacian. Connected pages share a label on 88.5 % of edges, which supports neighbour averaging. Calibration uses temperature scaling (Guo et al., 2017).
 
 ### 2.3 Preliminary evidence (smoke test, 21 Oct 2026, seed 42, Apple M4 CPU)
 
@@ -419,14 +428,7 @@ What v2 shows:
 4. **Learning rate matters little.** For each pair of settings that differ only in learning rate, the scores are within 0.002, but 0.005 usually needs more epochs (0.9× to 1.9× as many; median about 1.5×).
 5. **Seed spread is small.** The std is at most 0.0041, and the gap between the top two GCN settings (0.0007) is no larger than the std of either: the top settings are close to tied. The 4-layer setting is chosen by the rule, and it is also the cheaper one.
 
-**Chosen settings** (highest mean validation macro-F1, unchanged from v1):
-
-| Model | Layers | Dropout | DropEdge *p* | lr | Validation macro-F1 |
-|---|---|---|---|---|---|
-| GCN | 4 | 0.5 | 0 | 0.01 | 0.952 ± 0.001 |
-| MLP | 2 | 0.5 | 0 | 0.01 | 0.785 ± 0.001 |
-
-Most of the gap between GCN and MLP (+0.167 macro-F1) comes from the graph: GCN-2, which has the same size as the MLP (8,516 parameters), already scores 0.927 (+0.142); the extra depth of GCN-4 adds the rest. Tuning stops here: the next changes would be chosen after looking at these validation scores again, which adds more selection bias (Section 12).
+The chosen settings (summary table at the top of this section) are unchanged from v1. Most of the gap between GCN and MLP (+0.167 macro-F1) comes from the graph: GCN-2, which has the same size as the MLP (8,516 parameters), already scores 0.927 (+0.142); the extra depth of GCN-4 adds the rest. Tuning stops here: the next changes would be chosen after looking at these validation scores again, which adds more selection bias (Section 12).
 
 ---
 
@@ -746,11 +748,20 @@ GNN_49250523/
 
 ## 14. Artificial Intelligence Usage Disclosure
 
-| Tool | Used for | How I verified it |
-|---|---|---|
-| Claude Code (Claude Opus 5.5, Anthropic) | Drafting `dataset.py`, `modules.py`, `train.py`, `calibrate.py`, `predict.py` and this README; the data audit (found the wrong label order and the self-loops); extracting hyperparameters from the three reference papers; explaining concepts (seeds, message passing, backpropagation, leakage); implementing the accepted Gemini suggestions (row below) | Every file passes Ruff and was run before each commit. Checks run during development (not committed as a test suite): split disjointness, a planted split overlap is caught, test labels cannot enter the loss, parameter counts match hand calculations, labels match the MUSAE file for all pages. Hyperparameter values were taken from text extracted from the paper PDFs, with the passages quoted. I reviewed each commit before it was made and questioned the design choices (seeds, split, tuning, leakage) until I could explain them. I then read the quoted passages in the three papers myself (arXiv versions linked in Section 13) and confirmed that every quote and value matches. |
-| OpenAI Codex CLI 0.163.0 | A critique of the feasibility review | I checked each point against the data and code. Accepted: the self-loop count, test-set reuse, uncalibrated ECE label, transductive wording, threshold rule. Rejected: removing the t-SNE plot (the spec requires it). |
-| Google Gemini | A critique of the README draft, plus a rewritten version | The rewrite was not used. Each suggestion was checked against the code and results. Accepted: per-class F1, a confusion matrix, a per-depth tuning summary with the full tables collapsed, scoring the routing rules on validation, the expected test-set overlap, clearer dropout wording. Rejected: claims in the rewrite that did not match the code or history (input dropout in deeper models, a unit test that does not exist, seed lists committed before tuning) and wording that stated hedged findings as certain. |
-| OpenAI Codex CLI 0.163.0 (GPT-6-Astra, high reasoning, read-only) | A second review of the README, code and results against the spec | I re-checked each of its 10 points against the data, code and results; all held. Fixed: features are not centred; the GCN layer is a normalised weighted sum, not an average; validation labels fit the temperature; test is read twice on frozen checkpoints; a stale split comment; the missing next-experiment and fallback items; two rounded figures; a confidence claim that relied on rounding; causal wording; checkpoints now pair by stored seed. |
+**Claude Code (Claude Opus 5.5, Anthropic)**
+- *Used for:* Drafting `dataset.py`, `modules.py`, `train.py`, `calibrate.py`, `predict.py` and this README; the data audit (found the wrong label order and the self-loops); extracting hyperparameters from the three reference papers; explaining concepts (seeds, message passing, backpropagation, leakage); implementing the accepted Gemini suggestions (below); three review sub-agents on 23 Oct (a comparison with past students' accepted READMEs, a clean reinstall that reproduced every metric, and a check against the marking criteria), whose findings I checked before any change
+- *How I verified it:* Every file passes Ruff and was run before each commit. Checks run during development (not committed as a test suite): split disjointness, a planted split overlap is caught, test labels cannot enter the loss, parameter counts match hand calculations, labels match the MUSAE file for all pages. Hyperparameter values were taken from text extracted from the paper PDFs, with the passages quoted. I reviewed each commit before it was made and questioned the design choices (seeds, split, tuning, leakage) until I could explain them. I then read the quoted passages in the three papers myself (arXiv versions linked in Section 13) and confirmed that every quote and value matches.
+
+**OpenAI Codex CLI 0.163.0**
+- *Used for:* A critique of the feasibility review
+- *How I verified it:* I checked each point against the data and code. Accepted: the self-loop count, test-set reuse, uncalibrated ECE label, transductive wording, threshold rule. Rejected: removing the t-SNE plot (the spec requires it).
+
+**Google Gemini**
+- *Used for:* A critique of the README draft, plus a rewritten version
+- *How I verified it:* The rewrite was not used. Each suggestion was checked against the code and results. Accepted: per-class F1, a confusion matrix, a per-depth tuning summary with the full tables collapsed, scoring the routing rules on validation, the expected test-set overlap, clearer dropout wording. Rejected: claims in the rewrite that did not match the code or history (input dropout in deeper models, a unit test that does not exist, seed lists committed before tuning) and wording that stated hedged findings as certain.
+
+**OpenAI Codex CLI 0.163.0 (GPT-6-Astra, high reasoning, read-only)**
+- *Used for:* A second review of the README, code and results against the spec
+- *How I verified it:* I re-checked each of its 10 points against the data, code and results; all held. Fixed: features are not centred; the GCN layer is a normalised weighted sum, not an average; validation labels fit the temperature; test is read twice on frozen checkpoints; a stale split comment; the missing next-experiment and fallback items; two rounded figures; a confidence claim that relied on rounding; causal wording; checkpoints now pair by stored seed.
 
 AI-assisted commits carry a `Co-Authored-By` trailer.
