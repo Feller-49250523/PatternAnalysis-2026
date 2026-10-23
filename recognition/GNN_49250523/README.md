@@ -179,7 +179,13 @@ Both models implement one interface (`NodeClassifier`): `forward(x, edge_index) 
 | GCN-4 | 128 → 64 → [64 → 64 + residual] × 2 → 4 | 16,836 |
 | GCN-8 | 128 → 64 → [64 → 64 + residual] × 6 → 4 | 33,476 |
 
-The MLP has the same width, depth and dropout as GCN-2, so the gap between them measures the value of the graph. Residual connections between hidden layers ($h \leftarrow h + \mathrm{conv}(h)$, Kipf & Welling, App. B) let deeper models keep each page's own signal instead of averaging it away (over-smoothing). The 2-layer models have no input dropout, to match the smoke test.
+The MLP has the same width, depth and dropout as GCN-2, so the gap between them measures the value of the graph. Residual connections between hidden layers ($h \leftarrow h + \mathrm{conv}(h)$, Kipf & Welling, App. B) let deeper models keep each page's own signal instead of averaging it away (over-smoothing).
+
+**Dropout placement.** No model applies dropout to the input features. Dropout is applied to the hidden representation before every layer after the first, as in the smoke test:
+
+- MLP: `ReLU(Linear(x)) → dropout → Linear`
+- GCN-2: `ReLU(GCNConv(x)) → dropout → GCNConv`
+- GCN-3, -4 and -8: `h = ReLU(GCNConv(x))`, then each middle layer computes `h = h + ReLU(GCNConv(dropout(h)))` (dropout sits inside the residual branch), then `dropout → GCNConv` gives the 4 outputs.
 
 ---
 
@@ -511,7 +517,7 @@ Five representative cases, one per trigger. "Own-class links" is the share of th
 
    ![Senado](results/neighbourhood_9762.png)
 
-2. **Chef's Table** (a Netflix series). Its only link is to San Pellegrino, a food-and-drink company. With one neighbour, that neighbour dominates the average. The MLP, which ignores the edge, gets it right in 4 of 5 seeds. **Trigger:** low degree. **The graph caused this error.**
+2. **Chef's Table** (a Netflix series). Its only link is to San Pellegrino, a food-and-drink company with 11 links, 10 of them to companies. In one layer, Chef's Table keeps weight $1/\sqrt{2 \cdot 2} = 0.50$ on itself and gives $1/\sqrt{2 \cdot 12} = 0.20$ to San Pellegrino (formula in Section 1), so its own features still count most in a single layer. But all the graph context it receives over 4 layers comes through that one company page, which itself averages over companies, and nothing in the graph points to TV show. The MLP, which ignores the edge, gets it right in 4 of 5 seeds. **Trigger:** low degree. **The graph caused this error.**
 
    ![Chef's Table](results/neighbourhood_4593.png)
 
