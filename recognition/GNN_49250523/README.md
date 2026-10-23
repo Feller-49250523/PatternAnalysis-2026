@@ -655,15 +655,15 @@ These conclusions rest on one data split and five seeds; Section 12 lists the li
 
 **More data per page.** The model sees only each page's 128 description features and its links. Some remaining errors (Chef's Table, laSexta) would probably be easier with more information about the page itself, such as its images, recent posts or activity. Adding these could lower the error rate at every operating point, but it is untested here, and it would cost compute: the GCN itself would stay small, but every image and post would first have to be turned into features by a separate model (for example a pretrained image or text encoder), once per page and again as content changes. For a large network that feature step would likely dominate the cost; it was not measured in this study. It would also depend on the client being allowed to use that data.
 
-**Extra routing rules, checked on validation only.** The rules below were proposed after reading the test failures (Section 7.7), so they are scored on the validation split, not on test (`routing_validation` in [`results/predict.json`](results/predict.json); mean over seeds 3–7; 3,370 validation pages).
+**Extra routing rules, checked on validation only.** The rules below were proposed after reading the test failures (Section 7.7), so they are scored on the validation split, not on test (`routing_validation` in [`results/predict.json`](results/predict.json); mean over seeds 3–7; 3,370 validation pages). Accuracy is the share of auto-labelled pages that are right; the count is how many wrong labels go out unchecked, so it also reflects how many pages each policy handles.
 
-| Policy (pages not auto-labelled go to a human) | Validation coverage | Validation accuracy of auto-labels | Auto-labelled errors |
+| Policy (pages not auto-labelled go to a human) | Validation coverage | Validation accuracy of auto-labels | Wrong auto-labels (count, of 3,370 pages) |
 |---|---|---|---|
-| AC3 rule (threshold chosen for 97 % accuracy) | 94.9 % | 97.0 % | 95.6 |
-| Same threshold + refer GCN/MLP disagreements | 78.5 % | 98.4 % | 42.6 |
-| Same threshold + refer pages with ≤ 2 links | 74.5 % | 97.3 % | 68.2 |
-| Same threshold + both rules | 62.1 % | 98.7 % | 27.4 |
-| Threshold chosen for 98 % accuracy | 88.5 % | 98.0 % | 59.4 |
+| AC3 rule (threshold chosen for 97 % accuracy) | 94.9 % | 97.0 % | 96 |
+| Same threshold + refer GCN/MLP disagreements | 78.5 % | 98.4 % | 43 |
+| Same threshold + refer pages with ≤ 2 links | 74.5 % | 97.3 % | 68 |
+| Same threshold + both rules | 62.1 % | 98.7 % | 27 |
+| Threshold chosen for 98 % accuracy | 88.5 % | 98.0 % | 59 |
 
 - **A threshold chosen for 98 % accuracy is the cheapest fix.** It refers 6.4 % more pages and removes about 36 of the 96 auto-labelled errors. Its 98.0 % is in-sample, because the threshold was fitted to reach 98 % on this split; the 97 % rule lost 0.7 points from validation to test (Section 7.4), so a similar drop is likely.
 - **Disagreement catches more errors, at a higher cost.** It removes about 53 errors but refers 16.4 % more pages, taking coverage below the 80 % target of AC3. This rule has no fitted value, so its validation numbers are a fairer estimate than those of the threshold chosen for 98 % accuracy.
