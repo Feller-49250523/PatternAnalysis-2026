@@ -63,7 +63,7 @@ $$H^{(l+1)} = \mathrm{ReLU}\left(\tilde D^{-1/2} \tilde A \tilde D^{-1/2} H^{(l)
 
 The same layer, written for **one page** $i$, shows the weights between pages:
 
-$$h_i^{(l+1)} = \mathrm{ReLU}\left( \sum_{j \in \mathcal N(i) \cup \{i\}} \frac{1}{\sqrt{\tilde d_i \tilde d_j}} \, h_j^{(l)} W^{(l)} \right)$$
+$$h_i^{(l+1)} = \mathrm{ReLU}\left( \sum_{j \in \mathcal N(i) \cup \lbrace i \rbrace} \frac{1}{\sqrt{\tilde d_i \tilde d_j}} h_j^{(l)} W^{(l)} \right)$$
 
 Here $h_j^{(l)}$ is row $j$ of $H^{(l)}$ (page $j$'s numbers), and $\mathcal N(i)$ is the set of pages linked to page $i$. Page $i$ adds up its own row and each neighbour's row, each scaled by $1/\sqrt{\tilde d_i \tilde d_j}$, then multiplies by $W^{(l)}$ (for layer 0: a $1 \times 128$ row times a $128 \times 64$ matrix gives a $1 \times 64$ row).
 
