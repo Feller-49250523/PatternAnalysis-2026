@@ -4,6 +4,19 @@
 
 > **Status (23 Oct 2026):** all experiments are complete. AC1, AC2, AC4 and AC5 pass; AC3 fails narrowly (Section 7.4).
 
+**At a glance** (held-out test split, mean over 5 training seeds):
+
+| | GCN-4 (chosen) | MLP baseline (no graph) |
+|---|---|---|
+| Macro-F1 | **0.945 ± 0.002** | 0.776 ± 0.004 |
+| Accuracy | 0.948 | 0.798 |
+| TV-show recall (minority class) | 0.917 | 0.560 |
+| Calibration error (ECE), before → after temperature scaling | 0.014 → 0.015 | 0.036 → 0.034 |
+| Reject rule: pages auto-labelled / their accuracy | 95.3 % / 96.3 % (target ≥ 97 %) | 44.4 % / 95.7 % |
+| Parameters / full-graph inference (CPU) | 16,836 / 61 ms | 8,516 / 1.3 ms |
+
+**Recommendation:** pilot the GCN with human review of low-confidence pages, using a threshold chosen for 98 % validation accuracy (Section 7.9). Discussion of what the results mean: Section 7.8.
+
 ## Contents
 
 1. [Problem and algorithm](#1-problem-and-algorithm)
@@ -30,6 +43,9 @@
 **How a GCN works.** A graph convolutional network (Kipf & Welling, 2017) updates every page at once. In each layer, each page takes a degree-normalised weighted sum of its own features and its neighbours' features (close to an average, but the weights do not sum exactly to 1), then multiplies the result by a weight matrix that is shared by all pages. In matrix form, one layer is:
 
 $$H^{(l+1)} = \mathrm{ReLU}\left(\tilde D^{-1/2} \tilde A \tilde D^{-1/2} H^{(l)} W^{(l)}\right), \qquad \tilde A = A + I$$
+
+<details>
+<summary>Symbols, the per-page formula, and why the edge weights look like this</summary>
 
 | Symbol | Meaning | Size in this project |
 |---|---|---|
@@ -59,6 +75,8 @@ Here $h_j^{(l)}$ is row $j$ of $H^{(l)}$ (page $j$'s numbers), and $\mathcal N(i
 | From the hub (709 links) to a page with 4 links | 5 | 710 | $1/\sqrt{3550} = 0.017$ |
 
 So a hub, which links to pages of many kinds, has a small say in each neighbour's sum. The weights for one page do not add up to exactly 1 (here they range from 0.25 to 6.3, median 0.79), so this is not a true average, but the normalisation keeps a page's sum from growing in proportion to its number of links, as an unnormalised sum would.
+
+</details>
 
 With $L$ layers, each page receives information from pages up to $L$ hops away. (The middle layers of this model also add a residual connection, $h \leftarrow h + \text{layer}(h)$; see Section 4.) The last layer outputs 4 scores per page, and softmax turns them into class probabilities. Linked pages usually share a category (edge homophily 0.885), so mixing in the neighbours' features smooths out noise in each page's own features.
 
@@ -121,6 +139,9 @@ The two bullets above are as checked off on 22 Oct. What happened next: the scop
 
 ### Revisions since the check-off
 
+<details>
+<summary>What changed in the review after the check-off, and why</summary>
+
 | Change | Reason |
 |---|---|
 | Scope reduced to **GCN vs MLP** (GAT and GIN dropped) | The GCN passes AC1. GAT and GIN gained ≤ 1.1 points from one seed at up to 1.9× the cost, so the GCN is the cheapest model that meets the need. Their smoke-test rows stay as evidence for this choice. |
@@ -129,6 +150,8 @@ The two bullets above are as checked off on 22 Oct. What happened next: the scop
 | User need reworded | "Newly verified pages" implied an inductive setting; the study is transductive. |
 | Table labels | ECE and confidence are marked as uncalibrated; confidence and coverage are defined. |
 | Homophily claim narrowed | "Message passing assumes homophily" overstated the theory; the measured 88.5 % is now given as support. |
+
+</details>
 
 ---
 
@@ -236,6 +259,11 @@ Three papers supply every value. Each row below gives **one value**, the paper i
 
 Full references: [Section 13](#13-references).
 
+**In short.** Tuned on validation: number of GCN layers {2, 3 [K]; 4, 8 [R]}, dropout {0.5 [K], 0.8 [S]}, DropEdge rate {0 [K], 0.3 [R]}, learning rate {0.01 [K, S], 0.005 [S]} — 32 GCN settings and 4 MLP settings. Fixed: hidden size 64 [S], L2 weight decay 5 × 10⁻⁴ [K], Adam [K, S], early stopping with patience 50 on validation loss [S]. The tables below give each value's exact location and quotation.
+
+<details>
+<summary>Every value with its paper, location and quotation</summary>
+
 #### Tuned on validation (the grid, 4 × 2 × 2 × 2 = 32 GCN settings)
 
 **Number of GCN layers** — 4 values:
@@ -284,12 +312,17 @@ The MLP gets the same dropout and learning-rate values as the GCN. [S] (Sec. 3) 
 
 **Not tuned, with reasons.** The **number of epochs** is set by early stopping in every run. The **optimiser** is Adam in all three papers, and comparing optimisers does not answer the project question.
 
+</details>
+
 ### 5.3 Protocol
 
 Two kinds of seed are used (Section 3.3). The **split seed** (3710) is fixed and decides which pages are in train, validation and test. **Model seeds** decide the random start weights, dropout and DropEdge patterns. Each model seed is a different, equally valid training run of the same setting.
 
 1. **Tune (validation only).** A *setting* is one combination of hyperparameter values, e.g. "4 layers, dropout 0.5, *p* = 0, learning rate 0.01". Every setting is trained 3 times, with model seeds 0, 1 and 2, and scored on validation. The setting with the highest **mean** validation macro-F1 over its 3 runs is chosen ([S] also selects by mean validation score).
 2. **Final (test).** The chosen setting is trained again with **new** model seeds 3, 4, 5, 6 and 7. Each of the 5 models is scored on test once. All 5 scores are reported, as mean ± standard deviation and one by one ([Section 7.1](#71-test-macro-f1-ac1)).
+
+<details>
+<summary>Why this is not seed hacking (risk and control for each way it could happen)</summary>
 
 **Why this is not seed hacking.** Seed hacking means trying many seeds and reporting the luckiest. Here:
 
@@ -300,6 +333,8 @@ Two kinds of seed are used (Section 3.3). The **split seed** (3710) is fixed and
 | Hiding bad runs | Every final seed is reported, including the worst (GCN 0.942). |
 | Changing seeds after seeing results | The seed lists are constants in `train.py` (`TUNE_SEEDS`, `FINAL_SEEDS`), set before the first tuning run and never changed. They were first committed together with the v1 tuning results, so the git history alone cannot show this order. |
 | Choosing using test | Test labels are hidden during tuning (Section 6); test is read only after every choice is frozen. |
+
+</details>
 
 ### 5.4 Tuning history
 
@@ -315,10 +350,12 @@ Each table row is one setting. **Validation macro-F1: mean** is the average of i
 | GCN | 2 | 0.5 | 0 | 0.005 | 0.9271 ± 0.0011 | 809, 806, 885 | 25 of 32 |
 | **MLP (chosen)** | **2** | **0.5** | – | **0.01** | **0.7852 ± 0.0008** | 458, 373, 319 | 1 of 4 |
 
-**v1 (22 Oct, superseded).** 24 GCN + 4 MLP settings × 3 seeds = 84 runs. Each run trained for at most 200 epochs ([K]), keeping the epoch with the lowest validation loss. Full results: [`results/tuning_v1.json`](results/tuning_v1.json), [`results/tuning_v1.log`](results/tuning_v1.log).
+**In short.** Tuning ran twice, on validation only. v1 capped training at 200 epochs, but almost every run had its best epoch at 185–200 and the best depth (4) was at the edge of the grid. v2 replaced the cap with early stopping (patience 50) and added 8 layers. v2 chose the same settings: 4 layers, dropout 0.5, no DropEdge, learning rate 0.01. 8 layers were no better than 4 (0.9510 vs 0.9517, within seed noise); DropEdge and dropout 0.8 lowered the score at every depth; learning rate mattered little.
 
 <details>
-<summary>v1 tables: 24 GCN and 4 MLP settings (superseded)</summary>
+<summary>v1 (superseded): all 28 settings and why it was replaced</summary>
+
+**v1 (22 Oct, superseded).** 24 GCN + 4 MLP settings × 3 seeds = 84 runs. Each run trained for at most 200 epochs ([K]), keeping the epoch with the lowest validation loss. Full results: [`results/tuning_v1.json`](results/tuning_v1.json), [`results/tuning_v1.log`](results/tuning_v1.log).
 
 **v1 — GCN** (24 settings)
 
@@ -358,8 +395,6 @@ Each table row is one setting. **Validation macro-F1: mean** is the average of i
 | 3 | 0.5 | 0.005 | 0.7676 | 0.0026 |
 | 4 | 0.8 | 0.005 | 0.7620 | 0.0007 |
 
-</details>
-
 Two problems led to v2:
 
 1. **The epoch limit cut training short.** Almost every run had its best epoch between 185 and 200, so validation loss was still falling at the limit. This also favoured settings that learn fast (learning rate 0.01, dropout 0.5). Fix: [S]'s early stopping (patience 50, max 100,000 epochs, Section 5.1).
@@ -367,10 +402,12 @@ Two problems led to v2:
 
 These changes were based on validation results only; test labels stayed hidden (Section 6).
 
-**v2 (22 Oct, final).** 32 GCN + 4 MLP settings × 3 seeds = 108 runs, with early stopping. Total 136 min on the M4 CPU. Full results: [`results/tuning.json`](results/tuning.json), [`results/tuning_v2.log`](results/tuning_v2.log).
+</details>
 
 <details>
-<summary>v2 tables: 32 GCN and 4 MLP settings (final)</summary>
+<summary>v2 (final): all 36 settings and what they show</summary>
+
+**v2 (22 Oct, final).** 32 GCN + 4 MLP settings × 3 seeds = 108 runs, with early stopping. Total 136 min on the M4 CPU. Full results: [`results/tuning.json`](results/tuning.json), [`results/tuning_v2.log`](results/tuning_v2.log).
 
 **v2 — GCN** (32 settings)
 
@@ -418,8 +455,6 @@ These changes were based on validation results only; test labels stayed hidden (
 | 3 | 0.8 | 0.005 | 0.7730 | 0.0012 | 639, 613, 654 |
 | 4 | 0.8 | 0.01 | 0.7724 | 0.0022 | 370, 404, 226 |
 
-</details>
-
 What v2 shows:
 
 1. **Early stopping fixed the cut-off.** Best epochs are now 226–992, all past the old limit of 200 and far below the 100,000 cap. The chosen settings scored a little higher than in v1 (GCN: 0.948 → 0.952; MLP: 0.780 → 0.785).
@@ -427,6 +462,8 @@ What v2 shows:
 3. **DropEdge (*p* = 0.3) and dropout 0.8 lowered the score** for every GCN depth, as in v1.
 4. **Learning rate matters little.** For each pair of settings that differ only in learning rate, the scores are within 0.002, but 0.005 usually needs more epochs (0.9× to 1.9× as many; median about 1.5×).
 5. **Seed spread is small.** The std is at most 0.0041, and the gap between the top two GCN settings (0.0007) is no larger than the std of either: the top settings are close to tied. The 4-layer setting is chosen by the rule, and it is also the cheaper one.
+
+</details>
 
 The chosen settings (summary table at the top of this section) are unchanged from v1. Most of the gap between GCN and MLP (+0.167 macro-F1) comes from the graph: GCN-2, which has the same size as the MLP (8,516 parameters), already scores 0.927 (+0.142); the extra depth of GCN-4 adds the rest. Tuning stops here: the next changes would be chosen after looking at these validation scores again, which adds more selection bias (Section 12).
 
@@ -519,7 +556,7 @@ Temperature *T* is fitted on validation logits by minimising the negative log-li
 | GCN-4 | 0.69 ± 0.02 | **95.3 %** | **96.3 %** | 96 / 95 / 96 / 93 % |
 | MLP | 0.90 ± 0.01 | 44.4 % | 95.7 % | 48 / 43 / 48 / 34 % |
 
-**AC3 fails narrowly.** Coverage passes easily (95 % vs the 80 % target), but accuracy is 96.3 %, below 97 %, for all 5 seeds (96.2–96.5 %). The cause: the rule places the threshold exactly at 97 % on validation, and the accuracy of the auto-labelled pages drops 0.7 points from validation (97.0 %) to test (96.3 %), in line with the small validation-to-test drop in macro-F1 (Section 7.1). A rule with no safety margin fails on any small validation-to-test gap. The threshold was **not** changed after seeing the test result, because that would use test labels to make a choice (Section 6). Section 7.8 proposes a margin for deployment.
+**AC3 fails narrowly.** Coverage passes easily (95 % vs the 80 % target), but accuracy is 96.3 %, below 97 %, for all 5 seeds (96.2–96.5 %). The cause: the rule places the threshold exactly at 97 % on validation, and the accuracy of the auto-labelled pages drops 0.7 points from validation (97.0 %) to test (96.3 %), in line with the small validation-to-test drop in macro-F1 (Section 7.1). A rule with no safety margin fails on any small validation-to-test gap. The threshold was **not** changed after seeing the test result, because that would use test labels to make a choice (Section 6). Section 7.9 proposes a margin for deployment.
 
 The rule refers TV show pages slightly more often (93 % coverage vs 95–96 %), which matches TV show being the hardest class.
 
@@ -578,7 +615,19 @@ Five representative cases, one per trigger. "Own-class links" is the share of th
 - **The graph appears to override good features** (cases 2 and 5): the MLP was right. A page whose GCN and MLP predictions disagree is a cheap signal for human review.
 - **The taxonomy does not fit the page** (cases 3 and 4): broadcasters and government agencies are labelled "company". No model change fixes this; the labelling guide must.
 
-### 7.8 Recommendation to the triage team
+### 7.8 Discussion
+
+**Does confidence track correctness?** On average, yes. The GCN's calibration error is 0.014 before any scaling, the fitted temperature is close to 1 (1.02), and the reliability diagram follows the diagonal (Section 7.3). But an average can hide a small group of confident mistakes: 59 of the 144 stable errors have confidence ≥ 0.9, and four of the five failure cases are at 0.999 or more (Section 7.7). Good calibration means the confidence score can drive routing; it does not mean every error is flagged.
+
+**Why the graph helps, and where it hurts.** Linked pages share a category on 88.5 % of edges, so mixing in neighbours' features removes noise. A GCN of the same size as the MLP already gains +0.142 validation macro-F1 (Section 5.4), and the minority class gains most (TV-show recall 0.56 → 0.92). The t-SNE plot shows four compact clusters that touch mainly where the confusion matrix has its largest errors: company ↔ TV show and government ↔ politician (Sections 7.2, 7.5). The graph hurts when a page's links point to another class: institutions liked by people of another class (Senado), pages with one or two links (Chef's Table), and pages the four-class taxonomy does not fit (laSexta, NASA).
+
+**Why AC3 was missed.** The rule set the threshold exactly at 97 % on validation, and accuracy of the auto-labelled pages fell 0.7 points on test. A threshold with no safety margin fails on any small validation-to-test gap. On validation, a 98 % target still auto-labels 88.5 % of pages (Section 7.9).
+
+**Is the extra complexity worth it?** On this graph, yes. The GCN costs more than the MLP (2× the parameters, 53 s vs 4 s to train, 61 ms vs 1.3 ms for the whole graph), but all of these are small, and it adds +0.168 test macro-F1 and auto-labels more than twice as many pages at similar accuracy (95.3 % vs 44.4 %). More depth does not help: 8 layers score no better than 4 on validation (0.9510 vs 0.9517).
+
+These conclusions rest on one data split and five seeds; Section 12 lists the limitations.
+
+### 7.9 Recommendation to the triage team
 
 **Advance the GCN to a supervised pilot, not to unsupervised auto-labelling.**
 
@@ -702,6 +751,9 @@ GNN_49250523/
 
 ## 11. Project log
 
+<details>
+<summary>Dated log of each step (21–23 Oct 2026)</summary>
+
 | Date | Step | Notes |
 |---|---|---|
 | 21 Oct | Fork, branch `topic-recognition`, project folder | |
@@ -720,6 +772,8 @@ GNN_49250523/
 | 23 Oct | README critique by a third AI tool | Added per-class F1, confusion matrix, tuning summary; scored the routing rules on validation and dropped the few-links rule. See Section 14. |
 | 23 Oct | Second Codex review of the README and code | 10 points, all confirmed and fixed. See Section 14. |
 
+</details>
+
 ---
 
 ## 12. Limitations
@@ -729,7 +783,7 @@ GNN_49250523/
 - **Validation reuse.** The validation set guided early stopping, the grid, the v1 → v2 change, the temperature and the threshold, so validation scores are slightly optimistic. The test set was used for none of these.
 - **Threshold with no margin.** The AC3 rule was fixed before any threshold or test result was computed, and met its accuracy target exactly on validation, so it fell short on test (Section 7.4).
 - **No GPU.** Memory is CPU process memory, not GPU VRAM.
-- **Rules proposed after seeing test failures.** The extra routing rules in Section 7.8 were suggested after reading the test failures. They are scored on validation only, and none was adopted into the AC3 result; they still need confirming on new labelled data.
+- **Rules proposed after seeing test failures.** The extra routing rules in Section 7.9 were suggested after reading the test failures. They are scored on validation only, and none was adopted into the AC3 result; they still need confirming on new labelled data.
 - **Method of a source.** Rong et al. selected their reported settings by best *test* accuracy. Only their values are used here, not their selection method.
 
 ---

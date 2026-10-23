@@ -52,7 +52,7 @@ COVERAGE_TARGET = 0.80  # AC3
 LATENCY_REPEATS = 20
 CONFIDENT = 0.9  # a wrong page at or above this confidence is "confidently wrong"
 LOW_DEGREE = 2  # a page with this many links or fewer has little graph signal
-SAFETY_TARGET = 0.98  # Section 7.8: AC3 rule with a 1-point safety margin
+SAFETY_TARGET = 0.98  # Section 7.9: AC3 rule with a 1-point safety margin
 
 
 def load_model(path: str, data: Data, seed: int) -> NodeClassifier:
@@ -170,7 +170,7 @@ def summarise(runs: list[dict]) -> dict:
 def routing_on_validation(
     data: Data, gcn_probs: list[torch.Tensor], mlp_probs: list[torch.Tensor]
 ) -> dict:
-    """Score the extra routing rules of Section 7.8 on the validation split only.
+    """Score the extra routing rules of Section 7.9 on the validation split only.
 
     The rules were proposed after reading test failures, so they are checked on
     validation, never on test. For each final seed, a policy decides which
