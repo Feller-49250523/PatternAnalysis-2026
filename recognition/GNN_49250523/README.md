@@ -103,7 +103,8 @@ This review was checked off by the tutor on 22 Oct 2026. The version below has t
 **Terms used throughout.**
 - **Macro-F1:** the F1 score (harmonic mean of precision and recall) computed for each class, then averaged with equal weight, so the minority class (TV show) counts as much as the others.
 - **AUROC (macro OvR):** area under the ROC curve for each class against the rest ("one-vs-rest"), averaged over classes; 1.0 is perfect ranking, 0.5 is chance.
-- **Confidence:** the highest predicted class probability. **Coverage:** the share of pages auto-labelled (confidence at or above the threshold).
+- **Confidence:** the highest predicted class probability for a page; every page has its own.
+- **Threshold:** the minimum confidence score a page needs to be auto-labelled; pages below it go to a human. One value per trained model (about 0.69 here), chosen on validation. **Coverage:** the share of pages auto-labelled (confidence at or above the threshold).
 - **ECE (expected calibration error), top-label:** group pages into 15 confidence bins; in each bin, compare the mean confidence with the accuracy; average the gaps, weighted by bin size. "Top-label" means only the predicted class's probability is used. 0 means confidence matches accuracy exactly.
 - **Temperature scaling:** divide all logits by one number *T* before softmax, with *T* fitted on validation by minimising the **NLL** (negative log-likelihood, the cross-entropy of the true labels). It changes confidence but never the predicted class.
 - **SVD features:** the 128 numbers per page from a singular value decomposition of the page descriptions' word counts, supplied with the dataset (MUSAE: the original release by Rozemberczki et al., 2021).
@@ -549,14 +550,14 @@ Temperature *T* is fitted on validation logits by minimising the negative log-li
 
 ### 7.4 Reject option (AC3)
 
-**Rule.** The checked-off feasibility review fixed the targets (≥ 80 % coverage at ≥ 97 % accuracy) and that the threshold is chosen on validation. The exact selection rule below was written into this README on 22 Oct, before any threshold or test result had been computed (the threshold code was added on 23 Oct): on validation, choose the lowest confidence threshold at which the auto-labelled pages are ≥ 97 % correct; freeze it; apply it to test. Pages below the threshold go to a human.
+**Rule.** The checked-off feasibility review fixed the targets (≥ 80 % coverage at ≥ 97 % accuracy) and that the threshold is chosen on validation. The exact selection rule below was written into this README on 22 Oct, before any threshold or test result had been computed (the threshold code was added on 23 Oct): on validation, choose the lowest minimum confidence score (threshold) at which the auto-labelled pages are ≥ 97 % correct; freeze it; apply it to test. Pages whose confidence is below the threshold go to a human. The resulting threshold is 0.69 ± 0.02 (one per seed: 0.713, 0.668, 0.701, 0.675, 0.680).
 
 | | Threshold | Test coverage (auto-labelled) | Test accuracy of auto-labels | Coverage per class (co / gov / pol / tv) |
 |---|---|---|---|---|
 | GCN-4 | 0.69 ± 0.02 | **95.3 %** | **96.3 %** | 96 / 95 / 96 / 93 % |
 | MLP | 0.90 ± 0.01 | 44.4 % | 95.7 % | 48 / 43 / 48 / 34 % |
 
-**AC3 fails narrowly.** Coverage passes easily (95 % vs the 80 % target), but accuracy is 96.3 %, below 97 %, for all 5 seeds (96.2–96.5 %). The cause: the rule places the threshold exactly at 97 % on validation, and the accuracy of the auto-labelled pages drops 0.7 points from validation (97.0 %) to test (96.3 %), in line with the small validation-to-test drop in macro-F1 (Section 7.1). A rule with no safety margin fails on any small validation-to-test gap. The threshold was **not** changed after seeing the test result, because that would use test labels to make a choice (Section 6). Section 7.9 proposes a margin for deployment.
+**AC3 fails narrowly.** Coverage passes easily (95 % vs the 80 % target), but accuracy is 96.3 %, below 97 %, for all 5 seeds (96.2–96.5 %). The cause: the rule chooses the threshold at which validation accuracy is exactly 97 %, and the accuracy of the auto-labelled pages drops 0.7 points from validation (97.0 %) to test (96.3 %), in line with the small validation-to-test drop in macro-F1 (Section 7.1). A rule with no safety margin fails on any small validation-to-test gap. The threshold was **not** changed after seeing the test result, because that would use test labels to make a choice (Section 6). Section 7.9 proposes a margin for deployment.
 
 The rule refers TV show pages slightly more often (93 % coverage vs 95–96 %), which matches TV show being the hardest class.
 
@@ -621,7 +622,7 @@ Five representative cases, one per trigger. "Own-class links" is the share of th
 
 **Why the graph helps, and where it hurts.** Linked pages share a category on 88.5 % of edges, so mixing in neighbours' features removes noise. A GCN of the same size as the MLP already gains +0.142 validation macro-F1 (Section 5.4), and the minority class gains most (TV-show recall 0.56 → 0.92). The t-SNE plot shows four compact clusters that touch mainly where the confusion matrix has its largest errors: company ↔ TV show and government ↔ politician (Sections 7.2, 7.5). The graph hurts when a page's links point to another class: institutions liked by people of another class (Senado), pages with one or two links (Chef's Table), and pages the four-class taxonomy does not fit (laSexta, NASA).
 
-**Why AC3 was missed.** The rule set the threshold exactly at 97 % on validation, and accuracy of the auto-labelled pages fell 0.7 points on test. A threshold with no safety margin fails on any small validation-to-test gap. On validation, a 98 % target still auto-labels 88.5 % of pages (Section 7.9).
+**Why AC3 was missed.** The rule chose the threshold at which validation accuracy is exactly 97 %, and accuracy of the auto-labelled pages fell 0.7 points on test. A threshold with no safety margin fails on any small validation-to-test gap. On validation, a 98 % target still auto-labels 88.5 % of pages (Section 7.9).
 
 **Is the extra complexity worth it?** On this graph, yes. The GCN costs more than the MLP (2× the parameters, 53 s vs 4 s to train, 61 ms vs 1.3 ms for the whole graph), but all of these are small, and it adds +0.168 test macro-F1 and auto-labels more than twice as many pages at similar accuracy (95.3 % vs 44.4 %). More depth does not help: 8 layers score no better than 4 on validation (0.9510 vs 0.9517).
 
@@ -644,14 +645,14 @@ These conclusions rest on one data split and five seeds; Section 12 lists the li
 
 | Policy (pages not auto-labelled go to a human) | Validation coverage | Validation accuracy of auto-labels | Auto-labelled errors |
 |---|---|---|---|
-| AC3 rule (97 % threshold) | 94.9 % | 97.0 % | 95.6 |
-| 97 % threshold + refer GCN/MLP disagreements | 78.5 % | 98.4 % | 42.6 |
-| 97 % threshold + refer pages with ≤ 2 links | 74.5 % | 97.3 % | 68.2 |
-| 97 % threshold + both rules | 62.1 % | 98.7 % | 27.4 |
-| 98 % threshold | 88.5 % | 98.0 % | 59.4 |
+| AC3 rule (threshold chosen for 97 % accuracy) | 94.9 % | 97.0 % | 95.6 |
+| Same threshold + refer GCN/MLP disagreements | 78.5 % | 98.4 % | 42.6 |
+| Same threshold + refer pages with ≤ 2 links | 74.5 % | 97.3 % | 68.2 |
+| Same threshold + both rules | 62.1 % | 98.7 % | 27.4 |
+| Threshold chosen for 98 % accuracy | 88.5 % | 98.0 % | 59.4 |
 
-- **The 98 % threshold is the cheapest fix.** It refers 6.4 % more pages and removes about 36 of the 96 auto-labelled errors. Its 98.0 % is in-sample, because the threshold was fitted to reach 98 % on this split; the 97 % rule lost 0.7 points from validation to test (Section 7.4), so a similar drop is likely.
-- **Disagreement catches more errors, at a higher cost.** It removes about 53 errors but refers 16.4 % more pages, taking coverage below the 80 % target of AC3. This rule has no fitted value, so its validation numbers are a fairer estimate than the 98 % threshold's.
+- **A threshold chosen for 98 % accuracy is the cheapest fix.** It refers 6.4 % more pages and removes about 36 of the 96 auto-labelled errors. Its 98.0 % is in-sample, because the threshold was fitted to reach 98 % on this split; the 97 % rule lost 0.7 points from validation to test (Section 7.4), so a similar drop is likely.
+- **Disagreement catches more errors, at a higher cost.** It removes about 53 errors but refers 16.4 % more pages, taking coverage below the 80 % target of AC3. This rule has no fitted value, so its validation numbers are a fairer estimate than those of the threshold chosen for 98 % accuracy.
 - **The ≤ 2 links rule is a poor trade.** About a fifth of validation pages have 2 or fewer links, and most of them are classified correctly: it refers 20.4 % more pages to remove only 27 errors. Few links explains some failures (Chef's Table), but most low-degree pages are fine.
 
 ---
