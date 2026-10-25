@@ -205,7 +205,7 @@ forward pass (all 22,470 pages) → cross-entropy loss on the 15,729 training la
 → validation loss on the 3,370 validation labels (no gradient, no update)
 ```
 
-**Early stopping** (Shchur et al., 2018). Training loss falls almost every epoch, because the weights are updated to lower it. Validation loss shows how well the model does on labels it does not learn from. It falls at first, then flattens. If training went on, the model would start to fit details of the training pages that do not carry over to other pages (**overfitting**), and validation loss would rise. So the final model is not the weights at the last epoch:
+**Early stopping** (Shchur et al., 2018). Training loss falls almost every epoch, because the weights are updated to lower it. Validation loss shows how well the model does on labels it does not learn from. It falls at first, then flattens. If training went on, the model would start to fit details of the training pages that do not carry over to other pages (overfitting), and validation loss would rise. So the final model is not the weights at the last epoch:
 
 1. After each epoch, if the validation loss is a **new lowest value**, keep a copy of the weights from that epoch.
 2. If 50 epochs pass with no new lowest value (the **patience**), stop.
@@ -227,58 +227,6 @@ Three papers supply every value. Each row below gives **one value**, the paper i
 
 Full references: [Section 13](#13-references).
 
-<details>
-<summary>Every value with its paper, location and quotation</summary>
-
-#### Tuned on validation (the grid, 4 × 2 × 2 × 2 = 32 GCN settings)
-
-**Number of GCN layers** — 4 values:
-
-| Value | Source | Where | What the paper says |
-|---|---|---|---|
-| 2 | [K] | App. B, Fig. 5 | Tested 1 to 10 layers: "best results are obtained with a 2- or 3-layer model" |
-| 3 | [K] | App. B, Fig. 5 | Same sentence |
-| 4 | [R] | App., Table 6 | Best plain GCN on Cora has 4 layers (accuracy 0.876) |
-| 8 | [R] | App., "Hyper-parameter Optimization" | Depths tested are 2, 4, 8, 16, 32, 64; 8 is the next after 4. Added in tuning v2 because 4 was the best of 2–4 and at the edge of the grid ([Section 5.4](#54-tuning-history)) |
-
-**Dropout rate** — 2 values (GCN and MLP):
-
-| Value | Source | Where | What the paper says |
-|---|---|---|---|
-| 0.5 | [K] | Sec. 6.1 | "0.5 (dropout rate), 5 · 10⁻⁴ (L2 regularization) and 16 (number of hidden units)" for Citeseer, Cora and Pubmed |
-| 0.8 | [S] | App. C, Table 4 | Best dropout after a grid search over 0.2–0.8: 0.8 for GCN, and 0.8 for MLP |
-
-**DropEdge rate *p*** (fraction of edges dropped each epoch) — 2 values (GCN only; the MLP uses no edges):
-
-| Value | Source | Where | What the paper says |
-|---|---|---|---|
-| 0 | [K] | – | The original GCN drops no edges |
-| 0.3 | [R] | App., Tables 4 and 6 | Best GCN on Cora has "sampling-percent: 0.7"; Table 4 defines sampling-percent as the share of edges **kept**, (1 − *p*), so *p* = 1 − 0.7 = 0.3 |
-
-**Learning rate** — 2 values (GCN and MLP):
-
-| Value | Source | Where | What the paper says |
-|---|---|---|---|
-| 0.01 | [K]; [S] | [K] Sec. 5.2; [S] App. C, Table 4 | [K]: "Adam … with a learning rate of 0.01". [S]: best GCN learning rate 0.01 |
-| 0.005 | [S] | App. C, Table 4 | Best MLP learning rate 0.005 |
-
-The MLP gets the same dropout and learning-rate values as the GCN. [S] (Sec. 3) uses "the same training procedure for all the models", so the baseline is not weakened by less tuning. It has a 2-value dropout × 2-value learning-rate grid: 4 settings.
-
-#### Fixed (not tuned)
-
-| Setting | Value | Source | Where | What the paper says | Difference in this project |
-|---|---|---|---|---|---|
-| Hidden size | 64 | [S] | App. C, Table 4 | Best hidden size 64 for GCN and for MLP (grid 8, 16, 32, 64) | [K] used 16 |
-| L2 weight decay | 5 × 10⁻⁴ | [K] | Sec. 6.1 | "5 · 10⁻⁴ (L2 regularization)" | [K] applies it to the first layer only; here Adam's `weight_decay` applies it to every weight. [S]'s best GCN used 10⁻³ |
-| Optimiser | Adam | [K]; [S] | [K] Sec. 5.2; [S] Sec. 3 | [K]: "using Adam"; [S]: "the same optimizer (Adam … with default parameters)" | – |
-| Early stopping | patience 50 on validation loss; restore the best weights | [S] | App. C | "training stops if the total validation loss … does not improve for 50 epochs. Once training has stopped, we reset the state of the weights to the step with the lowest validation loss" | [S] includes the L2 term in the validation loss; here validation loss is cross-entropy only |
-| Maximum epochs | 100,000 | [S] | App. C | "We train for a maximum of 100k epochs" | Never reached; the best epochs were 185–556 |
-| Initialisation (GCN) | Glorot | [K]; [S] | [K] Sec. 5.2; [S] Sec. 3 | "initialization described in Glorot & Bengio (2010)" | PyG's `GCNConv` default |
-| Initialisation (MLP) | PyTorch default | – | – | – | `nn.Linear` default (Kaiming-uniform), **not** Glorot. A small mismatch with [S], which uses Glorot for every model |
-
-**Not tuned, with reasons.** The **number of epochs** is set by early stopping in every run. The **optimiser** is Adam in all three papers, and comparing optimisers does not answer the project question.
-
-</details>
 
 ### 5.3 Protocol
 
@@ -315,13 +263,13 @@ Two problems led to v2:
 
 What v2 shows:
 
-1. **Early stopping fixed the cut-off.** Best epochs are now 226–992, all past the old limit of 200 and far below the 100,000 cap. The chosen settings scored a little higher than in v1 (GCN: 0.948 → 0.952; MLP: 0.780 → 0.785).
-2. **Depth peaks at 4 layers.** The best 8-layer setting (0.9510) is not better than the best 4-layer setting (0.9517), so the best depth is no longer at the edge of the grid. 8 layers also take about 2× the time per run.
+1. **Early stopping fixed the cut-off.** Best epochs are now 226–992, all past the old limit of 200 and far below the 100,000 cap. 
+2. **Depth peaks at 4 layers.** The best 8-layer setting (0.9510) is not better than the best 4-layer setting (0.9517), so the best depth is no longer at the edge of the grid.
 3. **DropEdge (*p* = 0.3) and dropout 0.8 lowered the score** for every GCN depth, as in v1.
-4. **Learning rate matters little.** For each pair of settings that differ only in learning rate, the scores are within 0.002, but 0.005 usually needs more epochs (0.9× to 1.9× as many; median about 1.5×).
-5. **Seed spread is small.** The std is at most 0.0041, and the gap between the top two GCN settings (0.0007) is no larger than the std of either: the top settings are close to tied. The 4-layer setting is chosen by the rule, and it is also the cheaper one.
+4. **Learning rate matters little.** For each pair of settings that differ only in learning rate, the scores are within 0.002.
+5. **Seed spread is small.** The std is at most 0.0041, and the gap between the top two GCN settings (0.0007) is no larger than the std of either.
 
-The chosen settings  are unchanged from v1. Most of the gap between GCN and MLP (+0.167 macro-F1) comes from the graph: GCN-2, which has the same size as the MLP (8,516 parameters), already scores 0.927 (+0.142); the extra depth of GCN-4 adds the rest. Tuning stops here: the next changes would be chosen after looking at these validation scores again, which adds more selection bias (Section 12).
+Most of the gap between GCN and MLP (+0.167 macro-F1) comes from the graph GCN-2. The extra depth of GCN-4 adds the rest. 
 
 ---
 
