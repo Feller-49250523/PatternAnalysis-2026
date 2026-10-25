@@ -158,7 +158,7 @@ $$H^{(l+1)} = \mathrm{ReLU}\left(\tilde D^{-1/2} \tilde A \tilde D^{-1/2} H^{(l)
 |---|---|---|---|
 | Train (70 %) | 15,729 |  Only these labels enter the cross-entropy loss. Backpropagation computes the gradient of that loss, and Adam uses it to update the weights $W$. | Train loss curve, [Section 7.1](#71-test-macro-f1-ac1) |
 | Validation (15 %) | 3,370 | These labels never update the network weights $W$. They are read after each epoch with no gradient, for early stopping ([5.1](#51-training)) and picking the hyperparameters ([5.4](#54-tuning-history)). After training they fit two post-hoc values: the temperature and the reject threshold ([7.4](#74-reject-option-ac3)). | [Section 5.4](#54-tuning-history) |
-| Test (15 %) | 3,371 |  Test page labels are set to −1 during training and tuning ([Section 6](#6-leakage-controls)) then we read what the model predicts for those labels after hyperparameter tuning is complete and minimum confidence threshold and temperature have been decided. | [Sections 7.1–7.7](#7-results) |
+| Test (15 %) | 3,371 |  Test page labels are set to −1 during training and tuning ([Section 6](#6-leakage-controls)), then the model's predictions for those pages are compared with their labels after hyperparameter tuning is complete and the minimum confidence threshold and temperature have been decided. | [Sections 7.1–7.7](#7-results) |
 
 A training page and a test page can be neighbours. The test page's features then flow into the training page's average, but its **label** never does. This is the standard transductive protocol (Kipf & Welling, 2017).
 
@@ -288,7 +288,7 @@ Most of the gap between GCN and MLP (+0.167 macro-F1) comes from the graph: GCN-
 
 In the transductive setting, test pages' **features and edges** are visible during message passing; their **labels** are not. This is the standard protocol (Kipf & Welling, 2017).
 
-**AC4 passes.** Every control above is in the code, and the split check was confirmed during development to raise `ValueError` on a planted overlap. The one known weakness, the 491 test pages shared with the smoke test, is stated in Section 3.3.
+**AC4 passes.** Every control above is in the code, and the split check was confirmed during development to raise `ValueError` on a planted overlap. The one known weakness is the 491 test pages shared with the smoke test.
 
 ---
 
