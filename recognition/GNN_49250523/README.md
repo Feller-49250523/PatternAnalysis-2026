@@ -522,16 +522,16 @@ From `python predict.py` ([`results/predict.json`](results/predict.json)). Mean 
 
 F1 is computed per seed, then averaged. TV show, the minority class (15 %), is the weakest class for both models. The graph helps it the most: recall rises from 0.56 to 0.92, and F1 from 0.645 to 0.919.
 
-**Confusion matrix** (GCN-4, test pages per seed, mean over seeds 3–7; rows are the true class, columns the prediction):
+**Confusion matrix** (GCN-4, test pages summed over seeds 3–7, so each page counts 5 times; rows are the true class, columns the prediction):
 
-| True ↓ / predicted → | company | government | politician | tvshow | Pages |
+| True ↓ / predicted → | company | government | politician | tvshow | Pages × 5 |
 |---|---|---|---|---|---|
-| company | **919.0** | 24.2 | 3.8 | 28.0 | 975 |
-| government | 14.6 | **987.4** | 24.8 | 5.2 | 1,032 |
-| politician | 1.8 | 25.6 | **831.8** | 5.8 | 865 |
-| tvshow | 33.4 | 4.6 | 3.4 | **457.6** | 499 |
+| company | **4,595** | 121 | 19 | 140 | 4,875 |
+| government | 73 | **4,937** | 124 | 26 | 5,160 |
+| politician | 9 | 128 | **4,159** | 29 | 4,325 |
+| tvshow | 167 | 23 | 17 | **2,288** | 2,495 |
 
-Most errors fall into three pairs: company ↔ tvshow (61 pages per seed), government ↔ politician (50) and company ↔ government (39). The other confusions are small (for example politician → company, 1.8). The first two are the overlaps seen in the t-SNE plot (Section 7.5), and all three are among the main error pairs in the failure analysis (Section 7.7). For the MLP, the largest cell is tvshow → company (115 per seed), the source of its 0.56 TV-show recall. Full matrices: `confusion_sum` in [`results/predict.json`](results/predict.json).
+Most errors fall into three pairs: company ↔ tvshow (307 over the 5 seeds), government ↔ politician (252) and company ↔ government (194). The other confusions are small (for example politician → company, 9). The first two are the overlaps seen in the t-SNE plot (Section 7.5), and all three are among the main error pairs in the failure analysis (Section 7.7). For the MLP, the largest cell is tvshow → company (575), the source of its 0.56 TV-show recall. Full matrices: `confusion_sum` in [`results/predict.json`](results/predict.json).
 
 ### 7.3 Calibration (AC2)
 
