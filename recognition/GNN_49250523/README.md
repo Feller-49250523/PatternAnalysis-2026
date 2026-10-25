@@ -45,7 +45,7 @@
 $$H^{(l+1)} = \mathrm{ReLU}\left(\tilde D^{-1/2} \tilde A \tilde D^{-1/2} H^{(l)} W^{(l)}\right), \qquad \tilde A = A + I$$
 
 <details>
-<summary>Symbols, the per-page formula, and why the edge weights look like this</summary>
+<summary>Symbols</summary>
 
 | Symbol | Meaning | Size in this project |
 |---|---|---|
@@ -61,32 +61,13 @@ $$H^{(l+1)} = \mathrm{ReLU}\left(\tilde D^{-1/2} \tilde A \tilde D^{-1/2} H^{(l)
 | $\tilde D^{-1/2}$ | Diagonal matrix with entries $1/\sqrt{\tilde d_i}$ | $N \times N$ |
 | $\mathrm{ReLU}$ | $\max(0, x)$ on each number; not used after the last layer | – |
 
-The same layer, written for **one page** $i$, shows the weights between pages:
-
-$$h_i^{(l+1)} = \mathrm{ReLU}\left( \sum_{j \in \mathcal N(i) \cup \lbrace i \rbrace} \frac{1}{\sqrt{\tilde d_i \tilde d_j}} h_j^{(l)} W^{(l)} \right)$$
-
-Here $h_j^{(l)}$ is row $j$ of $H^{(l)}$ (page $j$'s numbers), and $\mathcal N(i)$ is the set of pages linked to page $i$. Page $i$ adds up its own row and each neighbour's row, each scaled by $1/\sqrt{\tilde d_i \tilde d_j}$, then multiplies by $W^{(l)}$ (for layer 0: a $1 \times 128$ row times a $128 \times 64$ matrix gives a $1 \times 64$ row).
-
-**Why this weight?** The weight of an edge depends only on the degrees of the **two pages at its ends**, $i$ and $j$. A hub with 709 links does not need all 709 degrees: its own degree $\tilde d_j = 710$ is in the weight of each of its edges. The square roots split the scaling fairly between the two ends (the geometric mean of the two degrees). The effect:
-
-| Edge | $\tilde d_i$ | $\tilde d_j$ | Weight $1/\sqrt{\tilde d_i \tilde d_j}$ |
-|---|---|---|---|
-| Between two pages with 4 links each | 5 | 5 | $1/\sqrt{25} = 0.200$ |
-| From the hub (709 links) to a page with 4 links | 5 | 710 | $1/\sqrt{3550} = 0.017$ |
-
-So a hub, which links to pages of many kinds, has a small say in each neighbour's sum. The weights for one page do not add up to exactly 1 (here they range from 0.25 to 6.3, median 0.79), so this is not a true average, but the normalisation keeps a page's sum from growing in proportion to its number of links, as an unnormalised sum would.
-
 </details>
 
-With $L$ layers, each page receives information from pages up to $L$ hops away. (The middle layers of this model also add a residual connection, $h \leftarrow h + \text{layer}(h)$; see Section 4.) The last layer outputs 4 scores per page, and softmax turns them into class probabilities. Linked pages usually share a category (edge homophily 0.885), so mixing in the neighbours' features smooths out noise in each page's own features.
-
-**Figures.** The 2-hop neighbourhoods in Section 7.7 show which pages each page draws on, and the t-SNE plot in Section 7.5 shows the learned embeddings.
 
 ---
 
 ## 2. Feasibility review
 
-This review was checked off by the tutor on 22 Oct 2026. The version below has the same content, with the corrections listed under [Revisions since the check-off](#revisions-since-the-check-off).
 
 ### 2.1 User need, scope and acceptance criteria
 
@@ -100,15 +81,6 @@ This review was checked off by the tutor on 22 Oct 2026. The version below has t
 | AC4 | No leakage: train/validation/test masks are disjoint; only training labels enter the loss; every model, calibration and threshold choice uses validation results. |
 | AC5 | Resources: one full training ≤ 10 min and peak memory ≤ 4 GB on a laptop CPU; full-graph inference ≤ 1 s. |
 
-**Terms used throughout.**
-- **Macro-F1:** the F1 score (harmonic mean of precision and recall) computed for each class, then averaged with equal weight, so the minority class (TV show) counts as much as the others.
-- **AUROC (macro OvR):** area under the ROC curve for each class against the rest ("one-vs-rest"), averaged over classes; 1.0 is perfect ranking, 0.5 is chance.
-- **Confidence:** the highest predicted class probability for a page; every page has its own.
-- **Threshold:** the minimum confidence score a page needs to be auto-labelled; pages below it go to a human. One value per trained model (about 0.69 here), chosen on validation. **Coverage:** the share of pages auto-labelled (confidence at or above the threshold).
-- **ECE (expected calibration error), top-label:** group pages into 15 confidence bins; in each bin, compare the mean confidence with the accuracy; average the gaps, weighted by bin size. "Top-label" means only the predicted class's probability is used. 0 means confidence matches accuracy exactly.
-- **Temperature scaling:** divide all logits by one number *T* before softmax, with *T* fitted on validation by minimising the **NLL** (negative log-likelihood, the cross-entropy of the true labels). It changes confidence but never the predicted class.
-- **SVD features:** the 128 numbers per page from a singular value decomposition of the page descriptions' word counts, supplied with the dataset (MUSAE: the original release by Rozemberczki et al., 2021).
-- **Over-smoothing:** with many GCN layers, every page's representation is mixed with so many others that pages of different classes become alike.
 
 ### 2.2 Model choice and course concepts
 
@@ -116,7 +88,6 @@ This review was checked off by the tutor on 22 Oct 2026. The version below has t
 
 ### 2.3 Preliminary evidence (smoke test, 21 Oct 2026, seed 42, Apple M4 CPU)
 
-No isolated nodes and no NaNs. Median degree 7, maximum 709. Class counts 6,495 / 6,880 / 5,768 / 3,327 (TV show is the minority, 15 %). The smoke test compared the MLP with three 2-layer GNNs (200 epochs, no tuning). ECE and confidence are **before** calibration.
 
 | Model | Test acc. | Macro-F1 | AUROC (macro OvR) | ECE (uncalibrated) | Mean confidence right / wrong | Coverage at confidence ≥ 0.9 → accuracy | Params | Train time |
 |---|---|---|---|---|---|---|---|---|
@@ -136,7 +107,6 @@ No isolated nodes and no NaNs. Median degree 7, maximum 709. Class counts 6,495 
 - **Next experiment:** GCN, GAT and GIN over 5 seeds at 2/3/4 layers, then temperature scaling, a reliability diagram, a validation-chosen threshold and a t-SNE plot of the embeddings.
 - **Fallback:** the 2-layer GCN already passes AC1. If GAT or GIN don't beat it clearly over 5 seeds, I'll keep the GCN as the cheapest model and focus on calibration and the reject-option analysis.
 
-The two bullets above are as checked off on 22 Oct. What happened next: the scope was narrowed to GCN vs MLP before the 5-seed GAT and GIN runs were done (see the revisions below), with the same outcome as the fallback: the GCN was kept (tuned to 4 layers) and the work focused on calibration and the reject option (Sections 7.3–7.4).
 
 ### Revisions since the check-off
 
@@ -176,10 +146,9 @@ The two bullets above are as checked off on 22 Oct. What happened next: the scop
 | `np.load(..., allow_pickle=False)` | A pickled array can run code when loaded. Only numeric arrays are read. |
 | Remove 179 self-loops (358 entries) | A page liking itself is not a relation. GCNConv adds its own self-loop in a controlled way. |
 | `to_undirected` (also merges duplicates) | Links are mutual likes; both directions must exist. Result: 170,823 undirected edges. |
-| No feature scaling | The SVD features are used as given. They are dense but not centred (column means range from −0.04 to 0.76). Scaling was not tuned; any scaling experiment would have to be chosen on validation. |
 | Check for NaNs and size mismatches | Raises `ValueError` instead of training on bad data. |
+| Labels | the dataset README says that label numbers [0, 1, 2, 3] correspond to [tvshow, government, company, politician], but they actually correspond to [company, government, politician, tvshow]. |
 
-**Labels:** the dataset README says that label numbers [0, 1, 2, 3] correspond to [tvshow, government, company, politician], but they actually correspond to [company, government, politician, tvshow]. Checked against each page's type in the original MUSAE release: the README's order is right for only 31 % of pages (only government, number 1, matches), and the actual order for 100 %. The label numbers are used unchanged; only the names attached to them (`CLASS_NAMES` in `dataset.py`) differ from the dataset README.
 
 ### 3.3 Split
 
@@ -187,31 +156,29 @@ The two bullets above are as checked off on 22 Oct. What happened next: the scop
 
 | Split | Pages | How its labels are used | Results |
 |---|---|---|---|
-| Train (70 %) | 15,729 | **Learning.** Only these labels enter the cross-entropy loss. Backpropagation computes the gradient of that loss, and Adam uses it to update the weights $W$. These are the only labels that change the model. | Train loss curve, [Section 7.1](#71-test-macro-f1-ac1) |
-| Validation (15 %) | 3,370 | **Choosing, never training the network.** These labels never update the network weights $W$. They are read after each epoch with no gradient, for early stopping ([5.1](#51-training)) and picking the hyperparameters ([5.4](#54-tuning-history)). After training they fit two post-hoc values: the temperature, one number learned by minimising validation NLL ([7.3](#73-calibration-ac2)), and the reject threshold ([7.4](#74-reject-option-ac3)). | [Section 5.4](#54-tuning-history) |
-| Test (15 %) | 3,371 | **Reporting only.** Hidden (set to −1) during training and tuning ([Section 6](#6-leakage-controls)). Read only after every choice is frozen: `train.py final` scores each final model, then `predict.py` re-scores the same saved checkpoints for the detailed metrics. No choice was made between or after these readings. | [Sections 7.1–7.7](#7-results) |
+| Train (70 %) | 15,729 |  Only these labels enter the cross-entropy loss. Backpropagation computes the gradient of that loss, and Adam uses it to update the weights $W$. | Train loss curve, [Section 7.1](#71-test-macro-f1-ac1) |
+| Validation (15 %) | 3,370 | These labels never update the network weights $W$. They are read after each epoch with no gradient, for early stopping ([5.1](#51-training)) and picking the hyperparameters ([5.4](#54-tuning-history)). After training they fit two post-hoc values: the temperature and the reject threshold ([7.4](#74-reject-option-ac3)). | [Section 5.4](#54-tuning-history) |
+| Test (15 %) | 3,371 |  Test page labels are set to −1 during training and tuning ([Section 6](#6-leakage-controls)) then we read what the model predicts for those labels after hyperparameter tuning is complete and minimum confidence threshold and temperature have been decided. | [Sections 7.1–7.7](#7-results) |
 
 A training page and a test page can be neighbours. The test page's features then flow into the training page's average, but its **label** never does. This is the standard transductive protocol (Kipf & Welling, 2017).
 
-- **Stratified**, so every split has the same class ratios (TV show 14.8 % in each). A random split without stratification would vary by about ±21 TV-show pages in the test set by chance.
-- **Shuffled with a fixed split seed**, so the split does not depend on the file order and is the same in every script and every run. `train.py` and `predict.py` each rebuild the split; a fixed seed makes sure they agree.
-- **Fresh split seed (3710).** The smoke test used seed 42 and its test scores informed the design, so the final study uses a new split, fixed before any final result was seen. By chance, 491 of the 3,371 new test pages were also in the old test set (two independent 15 % draws would share about 0.15 × 3,371 ≈ 506); only aggregate scores were seen for those.
-- **Split seed ≠ model seed.** The split seed decides *which pages* are in each split and stays fixed. Model seeds decide the start weights, dropout and DropEdge patterns, and change between runs.
+- Stratified so every split has the same class ratios.
+- Shuffled with a fixed split seed to break hidden patterns in test data while making results reproducible.
+- **Fresh split seed (3710).** The smoke test used seed 42 and its test scores informed the design, so the final study uses a new split, to ensure results were not biased towards a random pattern in the test splits.
 
 ### 3.4 Augmentation
 
-`augment()` implements DropEdge (Rong et al., 2020): on each training step it removes a random fraction of edges, both directions together. It is used on training passes only and never touches labels. Whether it helps is a tuned hyperparameter (Section 5).
+`augment()` implements DropEdge (Rong et al., 2020): on each training step it removes a random fraction of edges, both directions together. It is used on training passes only and never touches labels. 
 
 ---
 
 ## 4. Models
 
-Both models implement one interface (`NodeClassifier`): `forward(x, edge_index) = classify(embed(x, edge_index))`. `embed` returns the 64-dimensional hidden representation used for t-SNE.
 
 | Model | Architecture | Params |
 |---|---|---|
 | MLP (baseline) | 128 → 64 → 4, ReLU, dropout; ignores edges | 8,516 |
-| GCN-2 | GCNConv 128 → 64 → 4 | 8,516 |
+| GCN-2 | 128 → 64 → 4 | 8,516 |
 | GCN-3 | 128 → 64 → [64 → 64 + residual] → 4 | 12,676 |
 | GCN-4 | 128 → 64 → [64 → 64 + residual] × 2 → 4 | 16,836 |
 | GCN-8 | 128 → 64 → [64 → 64 + residual] × 6 → 4 | 33,476 |
@@ -230,7 +197,7 @@ The MLP has the same width, depth and dropout as GCN-2, so the gap between them 
 
 ### 5.1 Training
 
-**One epoch = one step.** The whole graph fits in memory, so each epoch is one full-batch step:
+**One epoch = one step.** The whole graph fits in memory, so each epoch is completed in a single batch:
 
 ```
 forward pass (all 22,470 pages) → cross-entropy loss on the 15,729 training labels
@@ -254,13 +221,11 @@ Three papers supply every value. Each row below gives **one value**, the paper i
 
 | Key | Paper | Why it is used |
 |---|---|---|
-| **[K]** | Kipf & Welling (2017), *Semi-supervised classification with graph convolutional networks* | The GCN itself |
-| **[S]** | Shchur et al. (2018), *Pitfalls of graph neural network evaluation* | A fair, tuned comparison of GCN and MLP under one training procedure |
+| **[K]** | Kipf & Welling (2017), *Semi-supervised classification with graph convolutional networks* | The GCN |
+| **[S]** | Shchur et al. (2018), *Pitfalls of graph neural network evaluation* | Comparison of GCN and MLP |
 | **[R]** | Rong et al. (2020), *DropEdge* | Deeper GCNs and dropping edges |
 
 Full references: [Section 13](#13-references).
-
-**In short.** Tuned on validation: number of GCN layers {2, 3 [K]; 4, 8 [R]}, dropout {0.5 [K], 0.8 [S]}, DropEdge rate {0 [K], 0.3 [R]}, learning rate {0.01 [K, S], 0.005 [S]} — 32 GCN settings and 4 MLP settings. Fixed: hidden size 64 [S], L2 weight decay 5 × 10⁻⁴ [K], Adam [K, S], early stopping with patience 50 on validation loss [S]. The tables below give each value's exact location and quotation.
 
 <details>
 <summary>Every value with its paper, location and quotation</summary>
@@ -322,139 +287,31 @@ Two kinds of seed are used (Section 3.3). The **split seed** (3710) is fixed and
 1. **Tune (validation only).** A *setting* is one combination of hyperparameter values, e.g. "4 layers, dropout 0.5, *p* = 0, learning rate 0.01". Every setting is trained 3 times, with model seeds 0, 1 and 2, and scored on validation. The setting with the highest **mean** validation macro-F1 over its 3 runs is chosen ([S] also selects by mean validation score).
 2. **Final (test).** The chosen setting is trained again with **new** model seeds 3, 4, 5, 6 and 7. Each of the 5 models is scored on test once. All 5 scores are reported, as mean ± standard deviation and one by one ([Section 7.1](#71-test-macro-f1-ac1)).
 
-<details>
-<summary>Why this is not seed hacking (risk and control for each way it could happen)</summary>
-
-**Why this is not seed hacking.** Seed hacking means trying many seeds and reporting the luckiest. Here:
-
-| Risk | Control |
-|---|---|
-| Picking the luckiest seed | No seed is picked. Seeds are chosen for *settings*, and the choice uses the mean of all 3 runs, so one lucky run cannot win alone. |
-| A setting that won by luck on seeds 0–2 | The final runs use new seeds 3–7, so any luck from seeds 0–2 does not carry over to the reported score. |
-| Hiding bad runs | Every final seed is reported, including the worst (GCN 0.942). |
-| Changing seeds after seeing results | The seed lists are constants in `train.py` (`TUNE_SEEDS`, `FINAL_SEEDS`), set before the first tuning run and never changed. They were first committed together with the v1 tuning results, so the git history alone cannot show this order. |
-| Choosing using test | Test labels are hidden during tuning (Section 6); test is read only after every choice is frozen. |
-
-</details>
 
 ### 5.4 Tuning history
 
-Each table row is one setting. **Validation macro-F1: mean** is the average of its 3 runs (model seeds 0, 1, 2); **std** is the standard deviation of those 3 runs, i.e. how much the score changes with the seed. Each version has one table per model, because the best setting is chosen separately for each model. Within a table, rank 1 is the highest mean; the chosen setting is in **bold**.
+Each table row is one setting. **Validation macro-F1: mean** is the average of its 3 runs (model seeds 0, 1, 2); **std** is the standard deviation of those 3 runs, i.e. how much the score changes with the seed. Each version has one table per model, because the best setting is chosen separately for each model. 
 
 **Summary: best v2 setting for each depth** (the full tables follow, collapsed):
 
 | Model | Layers | Dropout | DropEdge *p* | Learning rate | Validation macro-F1 (mean ± std, seeds 0–2) | Best epoch of each seed | Rank in its grid |
 |---|---|---|---|---|---|---|---|
-| **GCN (chosen)** | **4** | **0.5** | **0** | **0.01** | **0.9517 ± 0.0007** | 311, 363, 314 | 1 of 32 |
 | GCN | 8 | 0.5 | 0 | 0.005 | 0.9510 ± 0.0018 | 371, 390, 311 | 2 of 32 |
+| **GCN (chosen)** | **4** | **0.5** | **0** | **0.01** | **0.9517 ± 0.0007** | 311, 363, 314 | 1 of 32 |
 | GCN | 3 | 0.5 | 0 | 0.01 | 0.9470 ± 0.0019 | 474, 317, 467 | 9 of 32 |
 | GCN | 2 | 0.5 | 0 | 0.005 | 0.9271 ± 0.0011 | 809, 806, 885 | 25 of 32 |
-| **MLP (chosen)** | **2** | **0.5** | – | **0.01** | **0.7852 ± 0.0008** | 458, 373, 319 | 1 of 4 |
+| MLP | 2 | 0.5 | – | 0.01 | 0.7852 ± 0.0008 | 458, 373, 319 | 1 of 4 |
 
-**In short.** Tuning ran twice, on validation only. v1 capped training at 200 epochs, but almost every run had its best epoch at 185–200 and the best depth (4) was at the edge of the grid. v2 replaced the cap with early stopping (patience 50) and added 8 layers. v2 chose the same settings: 4 layers, dropout 0.5, no DropEdge, learning rate 0.01. 8 layers were no better than 4 (0.9510 vs 0.9517, within seed noise); DropEdge and dropout 0.8 lowered the score at every depth; learning rate mattered little.
-
-<details>
-<summary>v1 (superseded): all 28 settings and why it was replaced</summary>
+Tuning ran twice, on validation only. v1 capped training at 200 epochs, but almost every run had its best epoch at 185–200 and the best depth (4) was at the edge of the grid. v2 replaced the epoch cap with early stopping before 100000 epochs and added 8 layers. v2 chose the same settings: 4 layers, dropout 0.5, no DropEdge, learning rate 0.01. 8 layers were no better than 4 (0.9510 vs 0.9517, within seed noise); DropEdge and dropout 0.8 lowered the score at every depth; learning rate mattered little.
 
 **v1 (22 Oct, superseded).** 24 GCN + 4 MLP settings × 3 seeds = 84 runs. Each run trained for at most 200 epochs ([K]), keeping the epoch with the lowest validation loss. Full results: [`results/tuning_v1.json`](results/tuning_v1.json), [`results/tuning_v1.log`](results/tuning_v1.log).
-
-**v1 — GCN** (24 settings)
-
-| Rank | Layers | Dropout | DropEdge *p* | Learning rate | Validation macro-F1: mean of 3 seeds | Std of 3 seeds |
-|---|---|---|---|---|---|---|
-| 1 | 4 | 0.5 | 0.0 | 0.01 | **0.9481** | 0.0010 |
-| 2 | 4 | 0.5 | 0.0 | 0.005 | 0.9458 | 0.0020 |
-| 3 | 4 | 0.8 | 0.0 | 0.01 | 0.9445 | 0.0016 |
-| 4 | 3 | 0.5 | 0.0 | 0.01 | 0.9424 | 0.0005 |
-| 5 | 4 | 0.5 | 0.3 | 0.01 | 0.9413 | 0.0022 |
-| 6 | 4 | 0.8 | 0.0 | 0.005 | 0.9401 | 0.0019 |
-| 7 | 4 | 0.5 | 0.3 | 0.005 | 0.9395 | 0.0003 |
-| 8 | 3 | 0.5 | 0.0 | 0.005 | 0.9395 | 0.0013 |
-| 9 | 3 | 0.8 | 0.0 | 0.01 | 0.9381 | 0.0011 |
-| 10 | 3 | 0.5 | 0.3 | 0.01 | 0.9374 | 0.0007 |
-| 11 | 3 | 0.8 | 0.0 | 0.005 | 0.9353 | 0.0014 |
-| 12 | 4 | 0.8 | 0.3 | 0.01 | 0.9345 | 0.0011 |
-| 13 | 3 | 0.5 | 0.3 | 0.005 | 0.9334 | 0.0009 |
-| 14 | 4 | 0.8 | 0.3 | 0.005 | 0.9331 | 0.0011 |
-| 15 | 3 | 0.8 | 0.3 | 0.01 | 0.9302 | 0.0009 |
-| 16 | 3 | 0.8 | 0.3 | 0.005 | 0.9278 | 0.0021 |
-| 17 | 2 | 0.5 | 0.0 | 0.01 | 0.9230 | 0.0013 |
-| 18 | 2 | 0.5 | 0.3 | 0.01 | 0.9208 | 0.0015 |
-| 19 | 2 | 0.8 | 0.0 | 0.01 | 0.9195 | 0.0016 |
-| 20 | 2 | 0.5 | 0.0 | 0.005 | 0.9194 | 0.0013 |
-| 21 | 2 | 0.5 | 0.3 | 0.005 | 0.9192 | 0.0010 |
-| 22 | 2 | 0.8 | 0.0 | 0.005 | 0.9171 | 0.0017 |
-| 23 | 2 | 0.8 | 0.3 | 0.01 | 0.9163 | 0.0011 |
-| 24 | 2 | 0.8 | 0.3 | 0.005 | 0.9145 | 0.0023 |
-
-**v1 — MLP baseline** (4 settings; always 2 layers and no DropEdge, so those columns are left out)
-
-| Rank | Dropout | Learning rate | Validation macro-F1: mean of 3 seeds | Std of 3 seeds |
-|---|---|---|---|---|
-| 1 | 0.5 | 0.01 | **0.7795** | 0.0001 |
-| 2 | 0.8 | 0.01 | 0.7682 | 0.0012 |
-| 3 | 0.5 | 0.005 | 0.7676 | 0.0026 |
-| 4 | 0.8 | 0.005 | 0.7620 | 0.0007 |
 
 Two problems led to v2:
 
 1. **The epoch limit cut training short.** Almost every run had its best epoch between 185 and 200, so validation loss was still falling at the limit. This also favoured settings that learn fast (learning rate 0.01, dropout 0.5). Fix: [S]'s early stopping (patience 50, max 100,000 epochs, Section 5.1).
 2. **The best depth was at the edge of the grid.** Mean validation macro-F1 still rose from 2 to 3 to 4 layers. Fix: add 8 layers, the next depth tested by [R].
 
-These changes were based on validation results only; test labels stayed hidden (Section 6).
-
-</details>
-
-<details>
-<summary>v2 (final): all 36 settings and what they show</summary>
-
 **v2 (22 Oct, final).** 32 GCN + 4 MLP settings × 3 seeds = 108 runs, with early stopping. Total 136 min on the M4 CPU. Full results: [`results/tuning.json`](results/tuning.json), [`results/tuning_v2.log`](results/tuning_v2.log).
-
-**v2 — GCN** (32 settings)
-
-| Rank | Layers | Dropout | DropEdge *p* | Learning rate | Validation macro-F1: mean of 3 seeds | Std of 3 seeds | Best epoch of each seed |
-|---|---|---|---|---|---|---|---|
-| 1 | 4 | 0.5 | 0.0 | 0.01 | **0.9517** | 0.0007 | 311, 363, 314 |
-| 2 | 8 | 0.5 | 0.0 | 0.005 | 0.9510 | 0.0018 | 371, 390, 311 |
-| 3 | 8 | 0.5 | 0.0 | 0.01 | 0.9507 | 0.0007 | 236, 327, 226 |
-| 4 | 4 | 0.5 | 0.0 | 0.005 | 0.9507 | 0.0016 | 292, 287, 495 |
-| 5 | 8 | 0.8 | 0.0 | 0.01 | 0.9478 | 0.0012 | 418, 335, 368 |
-| 6 | 4 | 0.8 | 0.0 | 0.01 | 0.9475 | 0.0004 | 398, 390, 453 |
-| 7 | 8 | 0.8 | 0.0 | 0.005 | 0.9474 | 0.0016 | 352, 370, 470 |
-| 8 | 8 | 0.5 | 0.3 | 0.01 | 0.9473 | 0.0029 | 552, 372, 463 |
-| 9 | 3 | 0.5 | 0.0 | 0.01 | 0.9470 | 0.0019 | 474, 317, 467 |
-| 10 | 8 | 0.5 | 0.3 | 0.005 | 0.9464 | 0.0022 | 449, 478, 351 |
-| 11 | 4 | 0.8 | 0.0 | 0.005 | 0.9462 | 0.0026 | 438, 601, 490 |
-| 12 | 4 | 0.5 | 0.3 | 0.005 | 0.9457 | 0.0013 | 443, 316, 787 |
-| 13 | 4 | 0.5 | 0.3 | 0.01 | 0.9455 | 0.0008 | 439, 432, 350 |
-| 14 | 3 | 0.5 | 0.0 | 0.005 | 0.9453 | 0.0020 | 610, 661, 666 |
-| 15 | 8 | 0.8 | 0.3 | 0.005 | 0.9425 | 0.0041 | 920, 992, 677 |
-| 16 | 3 | 0.8 | 0.0 | 0.005 | 0.9421 | 0.0021 | 451, 737, 678 |
-| 17 | 8 | 0.8 | 0.3 | 0.01 | 0.9420 | 0.0016 | 451, 622, 542 |
-| 18 | 3 | 0.8 | 0.0 | 0.01 | 0.9417 | 0.0017 | 362, 470, 410 |
-| 19 | 3 | 0.5 | 0.3 | 0.005 | 0.9407 | 0.0009 | 515, 673, 708 |
-| 20 | 3 | 0.5 | 0.3 | 0.01 | 0.9399 | 0.0024 | 304, 671, 343 |
-| 21 | 4 | 0.8 | 0.3 | 0.005 | 0.9386 | 0.0016 | 523, 408, 499 |
-| 22 | 4 | 0.8 | 0.3 | 0.01 | 0.9383 | 0.0019 | 368, 568, 404 |
-| 23 | 3 | 0.8 | 0.3 | 0.01 | 0.9338 | 0.0002 | 240, 303, 446 |
-| 24 | 3 | 0.8 | 0.3 | 0.005 | 0.9329 | 0.0019 | 578, 677, 561 |
-| 25 | 2 | 0.5 | 0.0 | 0.005 | 0.9271 | 0.0011 | 809, 806, 885 |
-| 26 | 2 | 0.5 | 0.0 | 0.01 | 0.9267 | 0.0020 | 530, 492, 432 |
-| 27 | 2 | 0.5 | 0.3 | 0.005 | 0.9240 | 0.0003 | 647, 857, 798 |
-| 28 | 2 | 0.5 | 0.3 | 0.01 | 0.9239 | 0.0015 | 367, 550, 385 |
-| 29 | 2 | 0.8 | 0.0 | 0.01 | 0.9231 | 0.0008 | 408, 451, 276 |
-| 30 | 2 | 0.8 | 0.0 | 0.005 | 0.9225 | 0.0006 | 814, 690, 489 |
-| 31 | 2 | 0.8 | 0.3 | 0.01 | 0.9172 | 0.0008 | 267, 367, 477 |
-| 32 | 2 | 0.8 | 0.3 | 0.005 | 0.9172 | 0.0004 | 651, 631, 591 |
-
-**v2 — MLP baseline** (4 settings; always 2 layers and no DropEdge, so those columns are left out)
-
-| Rank | Dropout | Learning rate | Validation macro-F1: mean of 3 seeds | Std of 3 seeds | Best epoch of each seed |
-|---|---|---|---|---|---|
-| 1 | 0.5 | 0.01 | **0.7852** | 0.0008 | 458, 373, 319 |
-| 2 | 0.5 | 0.005 | 0.7851 | 0.0030 | 490, 771, 513 |
-| 3 | 0.8 | 0.005 | 0.7730 | 0.0012 | 639, 613, 654 |
-| 4 | 0.8 | 0.01 | 0.7724 | 0.0022 | 370, 404, 226 |
 
 What v2 shows:
 
@@ -464,9 +321,7 @@ What v2 shows:
 4. **Learning rate matters little.** For each pair of settings that differ only in learning rate, the scores are within 0.002, but 0.005 usually needs more epochs (0.9× to 1.9× as many; median about 1.5×).
 5. **Seed spread is small.** The std is at most 0.0041, and the gap between the top two GCN settings (0.0007) is no larger than the std of either: the top settings are close to tied. The 4-layer setting is chosen by the rule, and it is also the cheaper one.
 
-</details>
-
-The chosen settings (summary table at the top of this section) are unchanged from v1. Most of the gap between GCN and MLP (+0.167 macro-F1) comes from the graph: GCN-2, which has the same size as the MLP (8,516 parameters), already scores 0.927 (+0.142); the extra depth of GCN-4 adds the rest. Tuning stops here: the next changes would be chosen after looking at these validation scores again, which adds more selection bias (Section 12).
+The chosen settings  are unchanged from v1. Most of the gap between GCN and MLP (+0.167 macro-F1) comes from the graph: GCN-2, which has the same size as the MLP (8,516 parameters), already scores 0.927 (+0.142); the extra depth of GCN-4 adds the rest. Tuning stops here: the next changes would be chosen after looking at these validation scores again, which adds more selection bias (Section 12).
 
 ---
 
@@ -498,7 +353,7 @@ The tuned setting of each model (Section 5.4) was trained with new seeds 3–7 a
 | GCN-4 | **0.945 ± 0.002** | 0.943, 0.947, 0.942, 0.946, 0.946 | 16,836 | 53 s | 185–351 |
 | MLP | 0.776 ± 0.004 | 0.781, 0.779, 0.773, 0.771, 0.778 | 8,516 | 4 s | 350–556 |
 
-**AC1 passes:** 0.945 ≥ 0.90, and the GCN is 0.168 above the MLP (target ≥ 0.05). The worst GCN seed (0.942) is still 0.161 above the best MLP seed (0.781). Test is about 0.007 below validation (0.952), a small drop, as expected after selecting on validation.
+**AC1 passes:** 0.945 ≥ 0.90, and the GCN is 0.168 above the MLP (target ≥ 0.05). The worst GCN seed (0.942) is still 0.161 above the best MLP seed (0.781). Test is about 0.007 below validation (0.952), a small drop, which is expected as hyperparameters were chosen based on results of the validation pages.
 
 ![Training curves](results/training_curves.png)
 
@@ -520,7 +375,7 @@ From `python predict.py` ([`results/predict.json`](results/predict.json)). Mean 
 | MLP precision / recall | 0.829 / 0.848 | 0.802 / 0.844 | 0.777 / 0.825 | 0.759 / **0.560** |
 | MLP F1 | 0.838 | 0.823 | 0.800 | **0.645** |
 
-F1 is computed per seed, then averaged. TV show, the minority class (15 %), is the weakest class for both models. The graph helps it the most: recall rises from 0.56 to 0.92, and F1 from 0.645 to 0.919.
+F1 is computed per seed, then averaged. TV show, the minority class (15 %), is the weakest class for both models. The graph helps it the most: recall rises from 0.56 to 0.917, and F1 from 0.645 to 0.919.
 
 **Confusion matrix** (GCN-4, test pages summed over seeds 3–7, so each page counts 5 times; rows are the true class, columns the prediction):
 
@@ -542,15 +397,15 @@ Temperature *T* is fitted on validation logits by minimising the negative log-li
 | GCN-4 | 1.02 ± 0.02 | 0.014 | 0.015 |
 | MLP | 0.98 ± 0.01 | 0.036 | 0.034 |
 
-**AC2 passes** (0.015 ≤ 0.03). The GCN was already calibrated, so scaling changed almost nothing (*T* ≈ 1). A likely reason: early stopping keeps the weights with the lowest validation loss, and that loss is the same NLL that temperature scaling minimises. A check of seed 3 confirms that the validation NLL is lowest at *T* = 1.00.
+**AC2 passes** (0.015 ≤ 0.03). The GCN was already calibrated, so scaling changed almost nothing (*T* ≈ 1). A likely reason: early stopping keeps the weights with the lowest validation loss, and that loss is the same NLL that temperature scaling minimises. 
 
 ![Reliability diagram](results/reliability.png)
 
-**Figure.** Test reliability diagram, GCN seed 3. Each bar is the accuracy of the pages in one confidence bin; perfect calibration lies on the dashed line. No page has confidence below 0.4, and the bins above 0.8 hold most pages.
+**Figure.** Test reliability diagram, GCN seed 3. Each bar is the accuracy of the pages in one confidence bin; perfect calibration lies on the dashed line. 
 
 ### 7.4 Reject option (AC3)
 
-**Rule.** The checked-off feasibility review fixed the targets (≥ 80 % coverage at ≥ 97 % accuracy) and that the threshold is chosen on validation. The exact selection rule below was written into this README on 22 Oct, before any threshold or test result had been computed (the threshold code was added on 23 Oct): on validation, choose the lowest minimum confidence score (threshold) at which the auto-labelled pages are ≥ 97 % correct; freeze it; apply it to test. Pages whose confidence is below the threshold go to a human. The resulting threshold is 0.69 ± 0.02 (one per seed: 0.713, 0.668, 0.701, 0.675, 0.680).
+**Rule.** The checked-off feasibility review fixed the targets (≥ 80 % coverage at ≥ 97 % accuracy) and that the minimum confidence threshold is chosen on validation. The exact selection rule was: on validation, choose the lowest minimum confidence score (threshold) at which the auto-labelled pages are ≥ 97 % correct; freeze it; apply it to test. Pages whose confidence is below the threshold go to a human. The resulting threshold is 0.69 ± 0.02.
 
 | | Threshold | Test coverage (auto-labelled) | Test accuracy of auto-labels | Coverage per class (co / gov / pol / tv) |
 |---|---|---|---|---|
@@ -628,26 +483,23 @@ These conclusions rest on one data split and five seeds; Section 12 lists the li
 
 1. **Use the GCN, not a description-only model.** It is far more accurate, especially on TV shows (Sections 7.1–7.2).
 2. **Route pages by confidence.** Auto-label a page when its confidence reaches the threshold; send the rest to a person. The scores are honest enough to drive this rule (Section 7.3).
-3. **Choose the threshold with the client from the operating points below,** based on how many pages their team can review and how costly a wrong label is. Confirm the chosen point on a fresh labelled batch before go-live, because every point loses a little accuracy on new data.
-4. **Optionally, also send a person every page where the GCN and the MLP disagree.** It catches more errors but sends more pages to review. Do **not** add a "2 links or fewer" rule: it costs many reviews for little gain (table below).
-5. **Fix the labelling guidance before blaming the model.** Decide where broadcasters and government agencies belong, then re-check those labels (laSexta, NASA; Section 7.7).
+3. **Choose the threshold from the operating points below,** based on how many pages their team can review and how costly a wrong label is.
+4. **Send a person every page where the GCN and the MLP disagree.** It catches more errors but sends more pages to review. 
+5. **Review data labelling before training.** Decide where broadcasters and government agencies belong, then re-check those labels (laSexta, NASA; Section 7.7).
 6. **Check a random sample of auto-labelled pages regularly** to measure the real error rate on new pages and catch drift.
-7. **Test extra page data if the client can provide it** (images, posts, activity; see below).
+7. **Test extra page data if the client can provide it** (images, posts, activity).
 8. **Retrain on a schedule.** It takes 53 s on a laptop CPU, so keeping the model current is cheap (Section 7.6).
 
-**Operating points for the client.** Each threshold below is chosen on validation with the AC3 rule for a different accuracy target, frozen, and then applied once to test (`operating_points` in [`results/predict.json`](results/predict.json); mean over seeds 3–7; 3,371 test pages). Nothing is chosen on test.
+The table below demonstrates the trade-off which an end user would have to decide on when auto-labelling their pages. If a higher accuracy target is set, then the accuracy of auto-labels will increase, however so will the number of pages sent for human review. The decision of an end user will depend on their scale, need for accurate page labels and resources available for human review.
 
-| Accuracy target (validation) | Threshold (minimum confidence) | Test pages sent to a human | Test accuracy of auto-labels | Wrong auto-labels on test | Extra reviews per error avoided (vs the row above) |
-|---|---|---|---|---|---|
-| 97 % (AC3) | 0.69 | 4.7 % | 96.3 % | 118 | – |
-| 98 % | 0.84 | 10.5 % | 97.4 % | 80 | about 5 |
-| 99 % | 0.98 | 34.7 % | 98.7 % | 29 | about 16 |
+| Accuracy target (validation) | Threshold (minimum confidence) | Test pages sent to a human | Test accuracy of auto-labels | Extra reviews per error avoided (vs the row above) |
+|---|---|---|---|---|
+| 97 % (AC3) | 0.69 | 4.7 % | 96.3 % | – |
+| 98 % | 0.84 | 10.5 % | 97.4 % | ~5 |
+| 99 % | 0.98 | 34.7 % | 98.7 % | ~16 |
 
-- **The choice is a cost question.** Moving from the 97 % to the 98 % target costs about 5 extra manual reviews for each wrong label prevented; moving to 99 % costs about 16, and leaves only 65 % of pages auto-labelled (below AC3's 80 %). Which point is right depends on how much a wrong label costs the client compared with a manual review.
-- **At scale, review capacity decides.** The shares stay the same, but the counts grow with the number of pages. For 1 billion pages, the three rows would mean about 47 million, 105 million and 347 million manual reviews, and about 35 million, 24 million and 9 million wrong auto-labels. A client at that scale would set the threshold from how many reviews their team can do, and send the least confident pages first. These rates come from one 22,470-page graph and would need re-measuring on the client's own data.
-- **A gap on new data remains at every point.** Each target comes out 0.3–0.7 points lower on test than on validation, so the chosen point should be confirmed on fresh labelled pages.
-
-**More data per page.** The model sees only each page's 128 description features and its links. Some remaining errors (Chef's Table, laSexta) would probably be easier with more information about the page itself, such as its images, recent posts or activity. Adding these could lower the error rate at every operating point, but it is untested here, and it would cost compute: the GCN itself would stay small, but every image and post would first have to be turned into features by a separate model (for example a pretrained image or text encoder), once per page and again as content changes. For a large network that feature step would likely dominate the cost; it was not measured in this study. It would also depend on the client being allowed to use that data.
+- **Cost:** Moving from the 97 % to the 98 % target costs about 5 extra manual reviews for each wrong label prevented; moving to 99 % costs about 16, and leaves only 65 % of pages auto-labelled (below AC3's 80 %).
+- **Scale:** The shares stay the same, but the counts grow with the number of pages. For 1 billion pages, the three rows would mean about 47 million, 105 million and 347 million manual reviews, and about 35 million, 24 million and 9 million wrong auto-labels. A client at that scale would set the threshold from how many reviews their team can do, and send the least confident pages first. These rates come from one 22,470-page graph and would need re-measuring on the client's own data.
 
 **Extra routing rules, checked on validation only.** The rules below were proposed after reading the test failures (Section 7.7), so they are scored on the validation split, not on test (`routing_validation` in [`results/predict.json`](results/predict.json); mean over seeds 3–7; 3,370 validation pages). Accuracy is the share of auto-labelled pages that are right; the count is how many wrong labels go out unchecked, so it also reflects how many pages each policy handles.
 
@@ -659,9 +511,9 @@ These conclusions rest on one data split and five seeds; Section 12 lists the li
 | Same threshold + both rules | 62.1 % | 98.7 % | 27 |
 | Threshold chosen for 98 % accuracy | 88.5 % | 98.0 % | 59 |
 
-- **A threshold chosen for 98 % accuracy is the cheapest fix.** It refers 6.4 % more pages and removes about 36 of the 96 auto-labelled errors. Its 98.0 % is in-sample, because the threshold was fitted to reach 98 % on this split; the 97 % rule lost 0.7 points from validation to test (Section 7.4), so a similar drop is likely.
-- **Disagreement catches more errors, at a higher cost.** It removes about 53 errors but refers 16.4 % more pages, taking coverage below the 80 % target of AC3. This rule has no fitted value, so its validation numbers are a fairer estimate than those of the threshold chosen for 98 % accuracy.
-- **The ≤ 2 links rule is a poor trade.** About a fifth of validation pages have 2 or fewer links, and most of them are classified correctly: it refers 20.4 % more pages to remove only 27 errors. Few links explains some failures (Chef's Table), but most low-degree pages are fine.
+- Threshold for 98 % accuracy refers 6.4 % more pages and removes about 36 of the 96 auto-labelled errors. Its 98.0 % is in-sample, because the threshold was fitted to reach 98 % on this split; the 97 % rule lost 0.7 points from validation to test (Section 7.4), so a similar drop is likely.
+- Disagreement removes about 53 errors but refers 16.4 % more pages, taking coverage below the 80 % target of AC3.
+- The ≤ 2 links rule is a poor trade. About a fifth of validation pages have 2 or fewer links, and most of them are classified correctly: it refers 20.4 % more pages to remove only 27 errors. Few links explains some failures (Chef's Table), but most low-degree pages are fine.
 
 ---
 
