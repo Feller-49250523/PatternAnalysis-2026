@@ -217,13 +217,15 @@ forward pass (all 22,470 pages) → cross-entropy loss on the 15,729 training la
 
 ### 5.2 Sources for every hyperparameter
 
-Three papers supply every value. Each row below gives **one value**, the paper it comes from, where in that paper, and what the paper says.
+Three papers supply every value.
 
 | Key | Paper | Why it is used |
 |---|---|---|
 | **[K]** | Kipf & Welling (2017), *Semi-supervised classification with graph convolutional networks* | The GCN |
 | **[S]** | Shchur et al. (2018), *Pitfalls of graph neural network evaluation* | Comparison of GCN and MLP |
 | **[R]** | Rong et al. (2020), *DropEdge* | Deeper GCNs and dropping edges |
+
+**Tuned on validation:** layers {2, 3 [K]; 4, 8 [R]}, dropout {0.5 [K], 0.8 [S]}, DropEdge {0 [K], 0.3 [R]}, learning rate {0.01 [K, S], 0.005 [S]}: 32 GCN and 4 MLP settings. **Fixed:** hidden size 64 [S], weight decay 5 × 10⁻⁴ [K], Adam [K, S], early stopping with patience 50 [S].
 
 Full references: [Section 13](#13-references).
 
@@ -269,7 +271,7 @@ What v2 shows:
 4. **Learning rate matters little.** For each pair of settings that differ only in learning rate, the scores are within 0.002.
 5. **Seed spread is small.** The std is at most 0.0041, and the gap between the top two GCN settings (0.0007) is no larger than the std of either.
 
-Most of the gap between GCN and MLP (+0.167 macro-F1) comes from the graph GCN-2. The extra depth of GCN-4 adds the rest. 
+Most of the gap between GCN and MLP (+0.167 macro-F1) comes from the graph: GCN-2, the same size as the MLP, already gains +0.142. The extra depth of GCN-4 adds the rest. 
 
 ---
 
