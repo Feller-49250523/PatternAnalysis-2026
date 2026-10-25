@@ -582,7 +582,7 @@ Apple M4 CPU, no GPU (the spec asks for peak GPU VRAM; this study ran on CPU, so
 
 144 test pages are wrong for **all 5** GCN seeds, so these are stable failures, not bad luck ([`results/failures.csv`](results/failures.csv)). The most common error pairs: tvshow → company (27), company → tvshow (22), politician → government (22), company → government (20). 59 of the 144 have mean confidence ≥ 0.9.
 
-Five representative cases, one per trigger. "Own-class links" is the share of the page's neighbours that have the page's true class. "MLP" shows whether the model without the graph gets the page right; this suggests whether an error comes from the graph or from the page's own features. The neighbourhood plots draw at most 40 first-hop pages and 3 second-hop pages per neighbour, so large neighbourhoods are sampled; link counts in the text are full counts.
+Five representative cases, one per trigger. "Own-class links" is the share of the page's neighbours that have the page's true class. "MLP" shows whether the model without the graph gets the page right; this suggests whether an error comes from the graph or from the page's own features. The neighbourhood figure draws at most 40 first-hop pages and 3 second-hop pages per neighbour, so large neighbourhoods are sampled; link counts in the text are full counts.
 
 | # | Page | True → GCN | GCN conf. | Links | Own-class links | MLP (5 seeds) | Trigger |
 |---|---|---|---|---|---|---|---|
@@ -592,25 +592,19 @@ Five representative cases, one per trigger. "Own-class links" is the share of th
 | 4 | NASA | company → government | 1.00 | 328 | 6 % (289 are government) | government (wrong) | Arguable label |
 | 5 | The Muppets | tvshow → company | 0.65 | 22 | 32 % (Disney Store, Toys R Us …) | tvshow (right) | Caught by the reject rule |
 
-1. **Senado de la República** (a national senate). A senate's page is liked by its senators, so 32 of its 35 neighbours are politicians. Every layer mixes them in, and the GCN is fully confident in "politician". The MLP also says politician, so the page's own text is also politician-like. **Trigger:** the page is an institution made of people of another class. Many legislatures and parties fail the same way (politician ↔ government is the second-largest error pair in the confusion matrix, Section 7.2).
+![2-hop neighbourhoods of the five failure cases](results/neighbourhoods.png)
 
-   ![Senado](results/neighbourhood_9762.png)
+**Figure.** The 2-hop neighbourhood of each case, numbered as in the table. The analysed page is the large outlined node, labelled with its name; colours are true classes.
+
+1. **Senado de la República** (a national senate). A senate's page is liked by its senators, so 32 of its 35 neighbours are politicians. Every layer mixes them in, and the GCN is fully confident in "politician". The MLP also says politician, so the page's own text is also politician-like. **Trigger:** the page is an institution made of people of another class. Many legislatures and parties fail the same way (politician ↔ government is the second-largest error pair in the confusion matrix, Section 7.2).
 
 2. **Chef's Table** (a Netflix series). Its only link is to San Pellegrino, a food-and-drink company with 11 links, 10 of them to companies. In one layer, Chef's Table keeps weight $1/\sqrt{2 \cdot 2} = 0.50$ on itself and gives $1/\sqrt{2 \cdot 12} = 0.20$ to San Pellegrino (formula in Section 1), so its own features still count most in a single layer. But all the graph context it receives over 4 layers comes through that one company page, which itself mixes in mostly company pages, and nothing in the graph points to TV show. The MLP, which ignores the edge, gets it right in 4 of 5 seeds. **Trigger:** low degree. **The graph most likely caused this error:** the feature-only MLP is right, and nothing in its neighbourhood points to TV show.
 
-   ![Chef's Table](results/neighbourhood_4593.png)
-
 3. **laSexta** (a Spanish TV channel, labelled company). 8 of its 12 neighbours are its own programmes (*El Intermedio*, *Salvados*, …). The MLP also says TV show with confidence 1.00. **Trigger:** the taxonomy has no "broadcaster" class, so a channel sits between company and TV show. This is a **false positive** for TV show. Of the 22 stable company → tvshow errors, 6 are media pages (Netflix, a radio station, an awards show); many of the others are food brands (Kinder, Sargento Cheese, Lean Cuisine).
-
-   ![laSexta](results/neighbourhood_14872.png)
 
 4. **NASA** (labelled company). NASA is a US government agency, and 289 of its 328 neighbours are government pages. The GCN and the MLP both say government. **Trigger:** the label itself is arguable. Here the model is probably right and the dataset label is questionable. A wrong label in the test set lowers the measured accuracy, and it would also teach the model the wrong thing if it were in the training set.
 
-   ![NASA](results/neighbourhood_11332.png)
-
 5. **The Muppets** (labelled tvshow). Its neighbours are mostly merchandise and retail: Disney Store, Toys R Us UK, Amazon Toys & Games. The GCN is pulled to "company", but only with confidence 0.65, below the threshold in 4 of 5 seeds, so **the reject rule sends it to a human**. The MLP gets it right. **This is the case the triage design is for:** an uncertain error that is caught.
-
-   ![The Muppets](results/neighbourhood_7974.png)
 
 **What the five cases show.** In cases 1–4, the GCN is wrong with mean confidence 0.999 or more (shown as 1.00 in the table). A threshold high enough to refer them would auto-label at most 27 % of validation pages (coverage at a 0.999 threshold), far below the 80 % target, so in practice the threshold rule cannot catch them. Two causes stand out:
 - **The graph appears to override good features** (cases 2 and 5): the MLP was right. A page whose GCN and MLP predictions disagree is a cheap signal for human review.
@@ -691,7 +685,7 @@ pip install -r requirements.txt
 | `python train.py tune` | Grid search on validation; writes `results/tuning.json` | ~136 min | – (**optional**: `results/tuning.json` is committed) |
 | `python train.py final \| tee results/final.log` | Retrain the chosen settings with seeds 3–7, score test, save `checkpoints/`, plot curves | ~5 min | `results/tuning.json` |
 | `python predict.py` | Test metrics, calibration, reject rule, routing check, t-SNE, latency, failure list | ~15 s | `checkpoints/` |
-| `python predict.py --nodes 9762 4593` | Also draw the 2-hop neighbourhood of these pages | ~15 s | `checkpoints/` |
+| `python predict.py --nodes 9762 4593 14872 11332 7974` | Also draw these pages' 2-hop neighbourhoods in one figure (`results/neighbourhoods.png`) | ~15 s | `checkpoints/` |
 
 `train.py final` and `predict.py` **overwrite** the committed files in `results/`. A fresh run on the setup above reproduced every reported metric exactly; only timings differ slightly.
 
@@ -722,7 +716,7 @@ failure candidates (GCN wrong for every seed): 144
 - Every script prints `FutureWarning: torch.jit.script is deprecated` from inside PyTorch/PyG. It is harmless.
 - On the python.org macOS installer, the download can fail with `SSL: CERTIFICATE_VERIFY_FAILED`. Run `/Applications/Python 3.12/Install Certificates.command` once, or `export SSL_CERT_FILE=$(python -m certifi)`.
 
-**Page names (optional).** Download `facebook_target.csv` from the MUSAE repository ([`input/target/facebook_target.csv`](https://github.com/benedekrozemberczki/MUSAE/tree/master/input/target)) into `data/`. Without it, the `page_name` column of `results/failures.csv` and the neighbourhood plot titles are blank; nothing else changes.
+**Page names (optional).** Download `facebook_target.csv` from the MUSAE repository ([`input/target/facebook_target.csv`](https://github.com/benedekrozemberczki/MUSAE/tree/master/input/target)) into `data/`. Without it, the `page_name` column of `results/failures.csv` is blank and the neighbourhood figure labels each page by its node number; nothing else changes.
 
 ---
 

@@ -4,7 +4,7 @@ Author: 49250523 (COMP3710 Pattern Recognition project, 2026)
 
 Usage:
     python predict.py                    # metrics, figures and failure candidates
-    python predict.py --nodes 12 345     # also draw the 2-hop neighbourhood of these pages
+    python predict.py --nodes 12 345     # also draw these pages' 2-hop neighbourhoods
 
 For each model and each final seed, the temperature and the reject threshold are
 fitted on validation logits only, frozen, and then applied to the test logits
@@ -361,20 +361,22 @@ def failure_candidates(data: Data, probs: list[torch.Tensor], path: str) -> int:
     return len(rows)
 
 
-def plot_neighbourhood(data: Data, node: int, pred: int, path: str, cap: int = 40) -> None:
-    """Draw a page's 2-hop neighbourhood, coloured by true class.
+def draw_neighbourhood(
+    ax: plt.Axes, data: Data, node: int, pred: int, names: list[str], cap: int = 40
+) -> None:
+    """Draw one page's 2-hop neighbourhood on ``ax``, coloured by true class.
 
     Large neighbourhoods are cut to ``cap`` first-hop pages and 3 second-hop
     pages each (first in index order), so the picture stays readable.
 
     Args:
+        ax: Axes to draw on.
         data: Graph with real labels.
-        node: Page to draw (shown large, with a black outline).
+        node: Page to draw (shown large, outlined and labelled with its name).
         pred: The class the model predicted for ``node``.
-        path: Output PNG path.
+        names: Page name for every node index.
         cap: Maximum number of first-hop pages drawn.
     """
-    names = load_page_names() or [str(i) for i in range(data.num_nodes)]
     src, dst = data.edge_index
     hop1 = dst[src == node].tolist()[:cap]
     graph = nx.Graph()
@@ -385,22 +387,56 @@ def plot_neighbourhood(data: Data, node: int, pred: int, path: str, cap: int = 4
             graph.add_edge(n1, n2)
     colours = [f"C{int(data.y[n])}" for n in graph.nodes]
     sizes = [400 if n == node else 120 if n in hop1 else 40 for n in graph.nodes]
-    fig, ax = plt.subplots(figsize=(7, 7))
     pos = nx.spring_layout(graph, seed=0)
     nx.draw_networkx_edges(graph, pos, ax=ax, alpha=0.3)
     nx.draw_networkx_nodes(graph, pos, ax=ax, node_color=colours, node_size=sizes)
     nx.draw_networkx_nodes(
         graph, pos, nodelist=[node], ax=ax, node_color=colours[0], node_size=400, edgecolors="k"
     )
-    for c, cls in enumerate(CLASS_NAMES):
-        ax.scatter([], [], color=f"C{c}", label=cls)
-    ax.legend(loc="lower left")
+    ax.annotate(
+        textwrap.shorten(names[node], 30, placeholder="…"),
+        pos[node],
+        xytext=(0, 16),
+        textcoords="offset points",
+        ha="center",
+        va="bottom",
+        fontweight="bold",
+        bbox={"boxstyle": "round", "fc": "white", "ec": "k", "alpha": 0.85},
+        zorder=5,
+    )
     ax.set_title(
-        f"{textwrap.fill(names[node], 50)}\n"
         f"true: {CLASS_NAMES[int(data.y[node])]}, predicted: {CLASS_NAMES[pred]}\n"
         f"degree {len(dst[src == node])} (showing {len(hop1)})"
     )
     ax.axis("off")
+
+
+def plot_neighbourhoods(data: Data, nodes: list[int], preds: list[int], path: str) -> None:
+    """Draw the 2-hop neighbourhoods of several pages side by side in one figure.
+
+    Args:
+        data: Graph with real labels.
+        nodes: Pages to draw.
+        preds: The class the model predicted for each page in ``nodes``.
+        path: Output PNG path.
+    """
+    names = load_page_names() or [str(i) for i in range(data.num_nodes)]
+    cols = min(3, len(nodes) + 1)  # one spare panel holds the legend
+    rows = -(-(len(nodes) + 1) // cols)
+    fig, axes = plt.subplots(rows, cols, figsize=(5 * cols, 5 * rows), squeeze=False)
+    axes = axes.ravel()
+    for i, (ax, node, pred) in enumerate(zip(axes, nodes, preds, strict=False)):
+        draw_neighbourhood(ax, data, node, pred, names)
+        ax.text(0, 1, str(i + 1), transform=ax.transAxes, fontsize=16, fontweight="bold")
+    for ax in axes[len(nodes) :]:
+        ax.axis("off")
+    legend = axes[len(nodes)]
+    for c, cls in enumerate(CLASS_NAMES):
+        legend.scatter([], [], color=f"C{c}", s=80, label=cls)
+    legend.scatter([], [], color="w", edgecolors="k", s=200, label="analysed page")
+    legend.scatter([], [], color="grey", s=60, label="direct link")
+    legend.scatter([], [], color="grey", s=20, label="two links away")
+    legend.legend(loc="center", fontsize=12, title="True class", title_fontsize=12)
     fig.tight_layout()
     fig.savefig(path, dpi=150)
     plt.close(fig)
@@ -460,9 +496,9 @@ def main() -> None:
     gcn_probs = probs_by_model["gcn"]
     n = failure_candidates(data, gcn_probs, os.path.join(RESULTS, "failures.csv"))
     mean_pred = torch.stack(gcn_probs).mean(0).argmax(1)
-    for node in args.nodes:
-        out = os.path.join(RESULTS, f"neighbourhood_{node}.png")
-        plot_neighbourhood(data, node, int(mean_pred[node]), out)
+    if args.nodes:
+        out = os.path.join(RESULTS, "neighbourhoods.png")
+        plot_neighbourhoods(data, args.nodes, [int(mean_pred[n]) for n in args.nodes], out)
 
     for model_name in ("gcn", "mlp"):
         m = report[model_name]["summary"]
